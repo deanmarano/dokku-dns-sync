@@ -37,12 +37,31 @@ service-set-backend-cmd() {
   
   dokku_log_info2 "Backend set to '$BACKEND' for service: $SERVICE"
   
-  if [[ "$BACKEND" == "aws" ]]; then
-    dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
-    dokku_log_info1 "You'll need: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION"
-  elif [[ "$BACKEND" == "cloudflare" ]]; then
-    dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
-    dokku_log_info1 "You'll need: Cloudflare API token"
+  # Load the backend to check if validation functions exist
+  local BACKEND_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../backends/$BACKEND"
+  if [[ -f "$BACKEND_SCRIPT" ]]; then
+    source "$BACKEND_SCRIPT"
+    
+    # Check if credentials already exist and are valid
+    local CREDENTIALS_VALID=false
+    if declare -f "dns_backend_${BACKEND}_validate_credentials" >/dev/null; then
+      if "dns_backend_${BACKEND}_validate_credentials" "$SERVICE" 2>/dev/null; then
+        CREDENTIALS_VALID=true
+        dokku_log_info2 "✓ Existing credentials found and validated for $BACKEND backend"
+      fi
+    fi
+    
+    if [[ "$CREDENTIALS_VALID" == "false" ]]; then
+      if [[ "$BACKEND" == "aws" ]]; then
+        dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
+        dokku_log_info1 "You'll need: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION"
+      elif [[ "$BACKEND" == "cloudflare" ]]; then
+        dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
+        dokku_log_info1 "You'll need: Cloudflare API token"
+      fi
+    fi
+  else
+    dokku_log_warn "Backend script not found: $BACKEND_SCRIPT"
   fi
 }
 

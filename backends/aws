@@ -8,32 +8,74 @@ dns_backend_aws_validate_credentials() {
   local AWS_SECRET_ACCESS_KEY_FILE="$SERVICE_ROOT/credentials/AWS_SECRET_ACCESS_KEY"
   local AWS_DEFAULT_REGION_FILE="$SERVICE_ROOT/credentials/AWS_DEFAULT_REGION"
 
-  [[ ! -f "$AWS_ACCESS_KEY_ID_FILE" ]] && dokku_log_fail "Missing AWS_ACCESS_KEY_ID. Run: dokku dns-sync:backend-auth $SERVICE"
-  [[ ! -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && dokku_log_fail "Missing AWS_SECRET_ACCESS_KEY. Run: dokku dns-sync:backend-auth $SERVICE"
-  [[ ! -f "$AWS_DEFAULT_REGION_FILE" ]] && dokku_log_fail "Missing AWS_DEFAULT_REGION. Run: dokku dns-sync:backend-auth $SERVICE"
-
   # Check if aws-cli is available
   if ! command -v aws >/dev/null 2>&1; then
     dokku_log_fail "aws-cli is not installed. Please install aws-cli to use AWS Route53 backend."
   fi
 
-  return 0
+  # First, check if we have service-specific credentials
+  if [[ -f "$AWS_ACCESS_KEY_ID_FILE" ]] && [[ -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && [[ -f "$AWS_DEFAULT_REGION_FILE" ]]; then
+    return 0
+  fi
+  
+  # If no service-specific credentials, check if AWS CLI is configured system-wide
+  if aws sts get-caller-identity >/dev/null 2>&1; then
+    # AWS CLI is configured and working, we can use it
+    return 0
+  fi
+
+  # No valid credentials found
+  [[ ! -f "$AWS_ACCESS_KEY_ID_FILE" ]] && dokku_log_fail "Missing AWS_ACCESS_KEY_ID. Run: dokku dns-sync:backend-auth $SERVICE"
+  [[ ! -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && dokku_log_fail "Missing AWS_SECRET_ACCESS_KEY. Run: dokku dns-sync:backend-auth $SERVICE"
+  [[ ! -f "$AWS_DEFAULT_REGION_FILE" ]] && dokku_log_fail "Missing AWS_DEFAULT_REGION. Run: dokku dns-sync:backend-auth $SERVICE"
+
+  return 1
 }
 
 dns_backend_aws_setup_env() {
   local SERVICE="$1"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local AWS_ACCESS_KEY_ID_FILE="$SERVICE_ROOT/credentials/AWS_ACCESS_KEY_ID"
+  local AWS_SECRET_ACCESS_KEY_FILE="$SERVICE_ROOT/credentials/AWS_SECRET_ACCESS_KEY"
+  local AWS_DEFAULT_REGION_FILE="$SERVICE_ROOT/credentials/AWS_DEFAULT_REGION"
   
-  export AWS_ACCESS_KEY_ID="$(cat "$SERVICE_ROOT/credentials/AWS_ACCESS_KEY_ID")"
-  export AWS_SECRET_ACCESS_KEY="$(cat "$SERVICE_ROOT/credentials/AWS_SECRET_ACCESS_KEY")"
-  export AWS_DEFAULT_REGION="$(cat "$SERVICE_ROOT/credentials/AWS_DEFAULT_REGION")"
+  # Only set environment variables if we have service-specific credentials
+  # Otherwise, rely on existing AWS CLI configuration
+  if [[ -f "$AWS_ACCESS_KEY_ID_FILE" ]] && [[ -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && [[ -f "$AWS_DEFAULT_REGION_FILE" ]]; then
+    export AWS_ACCESS_KEY_ID="$(cat "$AWS_ACCESS_KEY_ID_FILE")"
+    export AWS_SECRET_ACCESS_KEY="$(cat "$AWS_SECRET_ACCESS_KEY_FILE")"
+    export AWS_DEFAULT_REGION="$(cat "$AWS_DEFAULT_REGION_FILE")"
+  fi
+  # If files don't exist, AWS CLI will use its default configuration
 }
 
 dns_backend_aws_get_hosted_zone_id() {
   local DOMAIN="$1"
   
-  # Get the hosted zone ID for the domain
-  aws route53 list-hosted-zones --query "HostedZones[?Name=='${DOMAIN}.'].Id" --output text 2>/dev/null | sed 's|/hostedzone/||'
+  # First try exact match for the domain
+  local HOSTED_ZONE_ID
+  HOSTED_ZONE_ID=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${DOMAIN}.'].Id" --output text 2>/dev/null | sed 's|/hostedzone/||')
+  
+  if [[ -n "$HOSTED_ZONE_ID" ]] && [[ "$HOSTED_ZONE_ID" != "None" ]]; then
+    echo "$HOSTED_ZONE_ID"
+    return 0
+  fi
+  
+  # If no exact match, try to find the parent domain's hosted zone
+  # For example: if domain is "app.example.com", try "example.com"
+  local PARENT_DOMAIN="$DOMAIN"
+  while [[ "$PARENT_DOMAIN" == *.* ]]; do
+    PARENT_DOMAIN="${PARENT_DOMAIN#*.}"  # Remove first subdomain
+    HOSTED_ZONE_ID=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${PARENT_DOMAIN}.'].Id" --output text 2>/dev/null | sed 's|/hostedzone/||')
+    
+    if [[ -n "$HOSTED_ZONE_ID" ]] && [[ "$HOSTED_ZONE_ID" != "None" ]]; then
+      echo "$HOSTED_ZONE_ID"
+      return 0
+    fi
+  done
+  
+  # No hosted zone found
+  return 1
 }
 
 dns_backend_aws_create_record() {
@@ -46,7 +88,7 @@ dns_backend_aws_create_record() {
   HOSTED_ZONE_ID=$(dns_backend_aws_get_hosted_zone_id "$DOMAIN")
   
   if [[ -z "$HOSTED_ZONE_ID" ]]; then
-    dokku_log_fail "No hosted zone found for domain: $DOMAIN"
+    dokku_log_fail "No hosted zone found for domain: $DOMAIN. Ensure the domain or its parent domain has a hosted zone in Route53."
   fi
   
   # Create change batch JSON

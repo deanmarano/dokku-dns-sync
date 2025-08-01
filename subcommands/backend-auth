@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-backend-auth-cmd() {
+  #E configure backend authentication credentials for a service
+  #E dokku $PLUGIN_COMMAND_PREFIX:backend-auth prod-dns
+  #E for AWS: prompts for AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+  #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN
+  #A service, service to configure authentication for
+  declare desc="configure backend authentication for $PLUGIN_SERVICE service"
+  local cmd="$PLUGIN_COMMAND_PREFIX:backend-auth" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare SERVICE="$1"
+
+  [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a service name"
+  verify_service_name "$SERVICE"
+  
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
+  
+  if [[ ! -f "$BACKEND_FILE" ]]; then
+    dokku_log_fail "No backend configured for service $SERVICE. Run: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>"
+  fi
+  
+  local BACKEND
+  BACKEND="$(cat "$BACKEND_FILE")"
+  
+  if [[ -z "$BACKEND" ]]; then
+    dokku_log_fail "Backend not set for service $SERVICE. Run: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>"
+  fi
+  
+  local CREDENTIALS_DIR="$SERVICE_ROOT/credentials"
+  mkdir -p "$CREDENTIALS_DIR"
+  chmod 700 "$CREDENTIALS_DIR"
+  
+  case "$BACKEND" in
+    aws)
+      dokku_log_info2 "Configuring AWS Route53 credentials for service: $SERVICE"
+      
+      # Check if AWS CLI is already configured system-wide or per-user
+      local USE_EXISTING=false
+      if command -v aws >/dev/null 2>&1; then
+        if aws sts get-caller-identity >/dev/null 2>&1; then
+          dokku_log_info1 "Existing AWS CLI configuration detected"
+          echo -n "Use existing AWS CLI configuration? [Y/n]: "
+          read -r RESPONSE
+          if [[ -z "$RESPONSE" ]] || [[ "$RESPONSE" =~ ^[Yy]$ ]]; then
+            USE_EXISTING=true
+          fi
+        fi
+      fi
+      
+      if [[ "$USE_EXISTING" == "true" ]]; then
+        # Get current AWS configuration
+        local AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
+        AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id 2>/dev/null || echo "")
+        AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key 2>/dev/null || echo "")
+        AWS_DEFAULT_REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
+        
+        if [[ -n "$AWS_ACCESS_KEY_ID" ]] && [[ -n "$AWS_SECRET_ACCESS_KEY" ]]; then
+          echo "$AWS_ACCESS_KEY_ID" > "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID"
+          echo "$AWS_SECRET_ACCESS_KEY" > "$CREDENTIALS_DIR/AWS_SECRET_ACCESS_KEY"
+          echo "$AWS_DEFAULT_REGION" > "$CREDENTIALS_DIR/AWS_DEFAULT_REGION"
+          dokku_log_info1 "Using existing AWS CLI credentials"
+        else
+          dokku_log_warn "Could not retrieve existing AWS credentials, falling back to manual entry"
+          USE_EXISTING=false
+        fi
+      fi
+      
+      if [[ "$USE_EXISTING" == "false" ]]; then
+        # Manual credential entry
+        echo -n "AWS Access Key ID: "
+        read -r AWS_ACCESS_KEY_ID
+        [[ -z "$AWS_ACCESS_KEY_ID" ]] && dokku_log_fail "AWS Access Key ID is required"
+        
+        echo -n "AWS Secret Access Key: "
+        read -rs AWS_SECRET_ACCESS_KEY
+        echo
+        [[ -z "$AWS_SECRET_ACCESS_KEY" ]] && dokku_log_fail "AWS Secret Access Key is required"
+        
+        echo -n "AWS Default Region [us-east-1]: "
+        read -r AWS_DEFAULT_REGION
+        AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+        
+        echo "$AWS_ACCESS_KEY_ID" > "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID"
+        echo "$AWS_SECRET_ACCESS_KEY" > "$CREDENTIALS_DIR/AWS_SECRET_ACCESS_KEY"
+        echo "$AWS_DEFAULT_REGION" > "$CREDENTIALS_DIR/AWS_DEFAULT_REGION"
+      fi
+      
+      chmod 600 "$CREDENTIALS_DIR"/*
+      
+      # Validate credentials by testing AWS API access
+      dokku_log_info1 "Validating AWS credentials..."
+      if dns_backend_aws_validate_credentials "$SERVICE" && dns_backend_aws_setup_env "$SERVICE" && aws sts get-caller-identity >/dev/null 2>&1; then
+        dokku_log_info2 "✓ AWS credentials validated successfully"
+        
+        # Show available hosted zones
+        dokku_log_info1 "Available hosted zones:"
+        aws route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table 2>/dev/null || dokku_log_warn "Could not list hosted zones"
+      else
+        dokku_log_fail "✗ AWS credential validation failed. Please check your credentials."
+      fi
+      ;;
+      
+    cloudflare)
+      dokku_log_info2 "Configuring Cloudflare credentials for service: $SERVICE"
+      
+      echo -n "Cloudflare API Token: "
+      read -rs CLOUDFLARE_API_TOKEN
+      echo
+      [[ -z "$CLOUDFLARE_API_TOKEN" ]] && dokku_log_fail "Cloudflare API Token is required"
+      
+      echo "$CLOUDFLARE_API_TOKEN" > "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN"
+      chmod 600 "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN"
+      
+      # Validate credentials by testing Cloudflare API access
+      dokku_log_info1 "Validating Cloudflare credentials..."
+      if curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/user/tokens/verify" | grep -q '"success":true'; then
+        dokku_log_info2 "✓ Cloudflare credentials validated successfully"
+        
+        # Show available zones
+        dokku_log_info1 "Available zones:"
+        curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones" | \
+          jq -r '.result[] | "\(.name) (\(.id))"' 2>/dev/null || dokku_log_warn "Could not list zones (jq not available)"
+      else
+        dokku_log_fail "✗ Cloudflare credential validation failed. Please check your API token."
+      fi
+      ;;
+      
+    *)
+      dokku_log_fail "Unknown backend: $BACKEND"
+      ;;
+  esac
+  
+  dokku_log_info2 "Backend authentication configured for service: $SERVICE"
+  dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
+}
+
+service-backend-auth-cmd "$@"

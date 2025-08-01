@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-report-cmd() {
+  #E display DNS sync status and domain information for an app
+  #E dokku $PLUGIN_COMMAND_PREFIX:report myapp
+  #E shows all domains for the app, their current DNS records, and sync status
+  #A app, app to generate DNS sync report for
+  declare desc="display DNS sync status and domain information for an app"
+  local cmd="$PLUGIN_COMMAND_PREFIX:report" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare APP="$1"
+
+  [[ -z "$APP" ]] && dokku_log_fail "Please specify an app name"
+  verify_app_name "$APP"
+  
+  dns_sync_report "$APP"
+}
+
+dns_sync_report() {
+  local APP="$1"
+  local SERVICE_ROOT
+  local LINKED_SERVICES=()
+  
+  dokku_log_info2 "DNS Sync Report for app: $APP"
+  dokku_log_info2 "$(printf "%-50s" "==============================")"
+  
+  # Get app domains
+  local APP_DOMAINS
+  APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
+  
+  if [[ -z "$APP_DOMAINS" ]]; then
+    dokku_log_warn "No domains configured for app: $APP"
+    dokku_log_info1 "Add domains with: dokku domains:add $APP <domain>"
+    return 0
+  fi
+  
+  # Find linked DNS sync services
+  if [[ -d "$PLUGIN_DATA_ROOT" ]]; then
+    for SERVICE_DIR in "$PLUGIN_DATA_ROOT"/*; do
+      [[ ! -d "$SERVICE_DIR" ]] && continue
+      local SERVICE_NAME
+      SERVICE_NAME=$(basename "$SERVICE_DIR")
+      local LINKS_FILE="$SERVICE_DIR/LINKS"
+      
+      if [[ -f "$LINKS_FILE" ]] && grep -qx "$APP" "$LINKS_FILE" 2>/dev/null; then
+        LINKED_SERVICES+=("$SERVICE_NAME")
+      fi
+    done
+  fi
+  
+  # Display linked services
+  if [[ ${#LINKED_SERVICES[@]} -eq 0 ]]; then
+    dokku_log_info1 "Linked DNS Services: None"
+    dokku_log_info1 "Link a service with: dokku $PLUGIN_COMMAND_PREFIX:link <service> $APP"
+  else
+    dokku_log_info1 "Linked DNS Services: ${LINKED_SERVICES[*]}"
+  fi
+  
+  echo
+  dokku_log_info2 "Domain Analysis:"
+  dokku_log_info2 "$(printf "%-30s %-15s %-20s %s" "Domain" "Current IP" "Status" "Backend")"
+  dokku_log_info2 "$(printf "%-30s %-15s %-20s %s" "------" "----------" "------" "-------")"
+  
+  # Analyze each domain
+  echo "$APP_DOMAINS" | while IFS= read -r DOMAIN; do
+    [[ -z "$DOMAIN" ]] && continue
+    
+    # Get current DNS resolution
+    local CURRENT_IP
+    CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "No record")
+    
+    # Find which service manages this domain and its backend
+    local MANAGING_SERVICE=""
+    local BACKEND=""
+    local SYNC_STATUS="Not synced"
+    
+    for SERVICE_NAME in "${LINKED_SERVICES[@]}"; do
+      SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE_NAME"
+      local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
+      
+      if [[ -f "$BACKEND_FILE" ]]; then
+        BACKEND=$(cat "$BACKEND_FILE" 2>/dev/null || echo "Unknown")
+        MANAGING_SERVICE="$SERVICE_NAME"
+        
+        # Check if backend credentials are configured
+        local CREDENTIALS_DIR="$SERVICE_ROOT/credentials"
+        if [[ -d "$CREDENTIALS_DIR" ]]; then
+          case "$BACKEND" in
+            aws)
+              if [[ -f "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID" ]] || aws sts get-caller-identity >/dev/null 2>&1; then
+                SYNC_STATUS="Ready"
+              else
+                SYNC_STATUS="Missing auth"
+              fi
+              ;;
+            cloudflare)
+              if [[ -f "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN" ]]; then
+                SYNC_STATUS="Ready"
+              else
+                SYNC_STATUS="Missing auth"
+              fi
+              ;;
+            *)
+              SYNC_STATUS="Unknown backend"
+              ;;
+          esac
+        else
+          SYNC_STATUS="Missing auth"
+        fi
+        break
+      fi
+    done
+    
+    if [[ -z "$MANAGING_SERVICE" ]]; then
+      BACKEND="None"
+      SYNC_STATUS="Not managed"
+    fi
+    
+    # Format and display the row
+    printf "%-30s %-15s %-20s %s\n" "$DOMAIN" "$CURRENT_IP" "$SYNC_STATUS" "$BACKEND"
+  done
+  
+  echo
+  dokku_log_info2 "Actions available:"
+  if [[ ${#LINKED_SERVICES[@]} -eq 0 ]]; then
+    dokku_log_info1 "1. Create DNS service: dokku $PLUGIN_COMMAND_PREFIX:create <service>"
+    dokku_log_info1 "2. Set backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend <service> <aws|cloudflare>"
+    dokku_log_info1 "3. Configure auth: dokku $PLUGIN_COMMAND_PREFIX:backend-auth <service>"
+    dokku_log_info1 "4. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link <service> $APP"
+  else
+    for SERVICE_NAME in "${LINKED_SERVICES[@]}"; do
+      dokku_log_info1 "Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE_NAME"
+    done
+  fi
+}
+
+service-report-cmd "$@"
