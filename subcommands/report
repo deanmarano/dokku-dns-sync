@@ -128,10 +128,9 @@ dns_sync_report() {
   echo
   dokku_log_info2 "Actions available:"
   if [[ ${#LINKED_SERVICES[@]} -eq 0 ]]; then
-    dokku_log_info1 "1. Create DNS service: dokku $PLUGIN_COMMAND_PREFIX:create <service>"
-    dokku_log_info1 "2. Set backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend <service> <aws|cloudflare>"
-    dokku_log_info1 "3. Configure auth: dokku $PLUGIN_COMMAND_PREFIX:backend-auth <service>"
-    dokku_log_info1 "4. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link <service> $APP"
+    dokku_log_info1 "1. Configure DNS service: dokku $PLUGIN_COMMAND_PREFIX:configure <service> [aws|cloudflare]"
+    dokku_log_info1 "2. Configure auth: dokku $PLUGIN_COMMAND_PREFIX:backend-auth <service>"
+    dokku_log_info1 "3. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link <service> $APP"
   else
     for SERVICE_NAME in "${LINKED_SERVICES[@]}"; do
       dokku_log_info1 "Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE_NAME"
