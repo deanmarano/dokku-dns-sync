@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-configure-cmd() {
+  #E configure a $PLUGIN_COMMAND_PREFIX service named prod-dns
+  #E dokku $PLUGIN_COMMAND_PREFIX:configure prod-dns
+  #E this creates a DNS synchronization service configuration that can manage
+  #E domains for one or more Dokku apps with a specific DNS provider backend.
+  #E after configuration, use other commands to:
+  #E - set the DNS backend (aws, cloudflare): dokku $PLUGIN_COMMAND_PREFIX:set-backend prod-dns aws
+  #E - configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth prod-dns <credentials>
+  #E - add domains to sync: dokku $PLUGIN_COMMAND_PREFIX:add-domain prod-dns example.com
+  #A service, service name to configure
+  declare desc="configure a $PLUGIN_SERVICE service"
+  local cmd="$PLUGIN_COMMAND_PREFIX:configure" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare SERVICE="$1"
+
+  [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a valid name for the service"
+  
+  service_configure "$SERVICE"
+}
+
+service-configure-cmd "$@"

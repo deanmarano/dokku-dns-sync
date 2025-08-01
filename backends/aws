@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# AWS Route53 DNS Backend for dokku-dns-sync
+
+dns_backend_aws_validate_credentials() {
+  local SERVICE="$1"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local AWS_ACCESS_KEY_ID_FILE="$SERVICE_ROOT/credentials/AWS_ACCESS_KEY_ID"
+  local AWS_SECRET_ACCESS_KEY_FILE="$SERVICE_ROOT/credentials/AWS_SECRET_ACCESS_KEY"
+  local AWS_DEFAULT_REGION_FILE="$SERVICE_ROOT/credentials/AWS_DEFAULT_REGION"
+
+  [[ ! -f "$AWS_ACCESS_KEY_ID_FILE" ]] && dokku_log_fail "Missing AWS_ACCESS_KEY_ID. Run: dokku dns-sync:backend-auth $SERVICE"
+  [[ ! -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && dokku_log_fail "Missing AWS_SECRET_ACCESS_KEY. Run: dokku dns-sync:backend-auth $SERVICE"
+  [[ ! -f "$AWS_DEFAULT_REGION_FILE" ]] && dokku_log_fail "Missing AWS_DEFAULT_REGION. Run: dokku dns-sync:backend-auth $SERVICE"
+
+  # Check if aws-cli is available
+  if ! command -v aws >/dev/null 2>&1; then
+    dokku_log_fail "aws-cli is not installed. Please install aws-cli to use AWS Route53 backend."
+  fi
+
+  return 0
+}
+
+dns_backend_aws_setup_env() {
+  local SERVICE="$1"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  
+  export AWS_ACCESS_KEY_ID="$(cat "$SERVICE_ROOT/credentials/AWS_ACCESS_KEY_ID")"
+  export AWS_SECRET_ACCESS_KEY="$(cat "$SERVICE_ROOT/credentials/AWS_SECRET_ACCESS_KEY")"
+  export AWS_DEFAULT_REGION="$(cat "$SERVICE_ROOT/credentials/AWS_DEFAULT_REGION")"
+}
+
+dns_backend_aws_get_hosted_zone_id() {
+  local DOMAIN="$1"
+  
+  # Get the hosted zone ID for the domain
+  aws route53 list-hosted-zones --query "HostedZones[?Name=='${DOMAIN}.'].Id" --output text 2>/dev/null | sed 's|/hostedzone/||'
+}
+
+dns_backend_aws_create_record() {
+  local DOMAIN="$1"
+  local RECORD_TYPE="$2"
+  local RECORD_VALUE="$3"
+  local TTL="${4:-300}"
+  
+  local HOSTED_ZONE_ID
+  HOSTED_ZONE_ID=$(dns_backend_aws_get_hosted_zone_id "$DOMAIN")
+  
+  if [[ -z "$HOSTED_ZONE_ID" ]]; then
+    dokku_log_fail "No hosted zone found for domain: $DOMAIN"
+  fi
+  
+  # Create change batch JSON
+  local CHANGE_BATCH
+  CHANGE_BATCH=$(cat <<EOF
+{
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "$DOMAIN",
+        "Type": "$RECORD_TYPE",
+        "TTL": $TTL,
+        "ResourceRecords": [
+          {
+            "Value": "$RECORD_VALUE"
+          }
+        ]
+      }
+    }
+  ]
+}
+EOF
+)
+  
+  # Submit the change
+  local CHANGE_ID
+  CHANGE_ID=$(aws route53 change-resource-record-sets \
+    --hosted-zone-id "$HOSTED_ZONE_ID" \
+    --change-batch "$CHANGE_BATCH" \
+    --query 'ChangeInfo.Id' \
+    --output text 2>/dev/null)
+    
+  if [[ -n "$CHANGE_ID" ]]; then
+    dokku_log_info1 "DNS record created/updated: $DOMAIN -> $RECORD_VALUE"
+    dokku_log_verbose "Change ID: $CHANGE_ID"
+    return 0
+  else
+    dokku_log_fail "Failed to create/update DNS record for $DOMAIN"
+  fi
+}
+
+dns_backend_aws_delete_record() {
+  local DOMAIN="$1"
+  local RECORD_TYPE="$2"
+  local RECORD_VALUE="$3"
+  
+  local HOSTED_ZONE_ID
+  HOSTED_ZONE_ID=$(dns_backend_aws_get_hosted_zone_id "$DOMAIN")
+  
+  if [[ -z "$HOSTED_ZONE_ID" ]]; then
+    dokku_log_warn "No hosted zone found for domain: $DOMAIN"
+    return 0
+  fi
+  
+  # Create change batch JSON for deletion
+  local CHANGE_BATCH
+  CHANGE_BATCH=$(cat <<EOF
+{
+  "Changes": [
+    {
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "$DOMAIN",
+        "Type": "$RECORD_TYPE",
+        "ResourceRecords": [
+          {
+            "Value": "$RECORD_VALUE"
+          }
+        ]
+      }
+    }
+  ]
+}
+EOF
+)
+  
+  # Submit the change
+  local CHANGE_ID
+  CHANGE_ID=$(aws route53 change-resource-record-sets \
+    --hosted-zone-id "$HOSTED_ZONE_ID" \
+    --change-batch "$CHANGE_BATCH" \
+    --query 'ChangeInfo.Id' \
+    --output text 2>/dev/null)
+    
+  if [[ -n "$CHANGE_ID" ]]; then
+    dokku_log_info1 "DNS record deleted: $DOMAIN"
+    return 0
+  else
+    dokku_log_warn "Failed to delete DNS record for $DOMAIN (may not exist)"
+  fi
+}
+
+dns_backend_aws_list_records() {
+  local DOMAIN="$1"
+  
+  local HOSTED_ZONE_ID
+  HOSTED_ZONE_ID=$(dns_backend_aws_get_hosted_zone_id "$DOMAIN")
+  
+  if [[ -z "$HOSTED_ZONE_ID" ]]; then
+    dokku_log_warn "No hosted zone found for domain: $DOMAIN"
+    return 0
+  fi
+  
+  aws route53 list-resource-record-sets \
+    --hosted-zone-id "$HOSTED_ZONE_ID" \
+    --query "ResourceRecordSets[?Name=='${DOMAIN}.']" \
+    --output table 2>/dev/null
+}
+
+dns_backend_aws_sync_domain() {
+  local SERVICE="$1"
+  local DOMAIN="$2"
+  local APP="$3"
+  
+  dns_backend_aws_validate_credentials "$SERVICE"
+  dns_backend_aws_setup_env "$SERVICE"
+  
+  # Get the app's current IP/hostname from Dokku
+  local APP_URL
+  APP_URL=$(dokku urls:report "$APP" --urls-app-urls 2>/dev/null | head -n1 | sed 's|https\?://||' | cut -d/ -f1)
+  
+  if [[ -z "$APP_URL" ]]; then
+    dokku_log_warn "No URL found for app: $APP"
+    return 1
+  fi
+  
+  # For now, create an A record pointing to the server's IP
+  # In a real implementation, you might want to resolve the hostname to IP
+  local SERVER_IP
+  SERVER_IP=$(dig +short "$APP_URL" | tail -n1)
+  
+  if [[ -z "$SERVER_IP" ]]; then
+    dokku_log_warn "Could not resolve IP for: $APP_URL"
+    return 1
+  fi
+  
+  dokku_log_info1 "Syncing domain $DOMAIN -> $SERVER_IP (from app: $APP)"
+  dns_backend_aws_create_record "$DOMAIN" "A" "$SERVER_IP"
+}

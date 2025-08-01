@@ -21,6 +21,42 @@ service_connect() {
   "$DOCKER_BIN" container exec --env=LANG=C.UTF-8 --env=LC_ALL=C.UTF-8 -i $SERVICE_TTY_OPTS "$SERVICE_NAME" psql -v ON_ERROR_STOP=1 -h localhost -U postgres "$DATABASE_NAME"
 }
 
+service_configure() {
+  local SERVICE="$1"
+  is_valid_service_name "$SERVICE" || dokku_log_fail "Please specify a valid name for the service. Valid characters are: [A-Za-z0-9_]+"
+  [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a valid name for the service"
+  [[ ! -d "$PLUGIN_DATA_ROOT/$SERVICE" ]] || dokku_log_fail "$PLUGIN_SERVICE service $SERVICE already exists"
+  
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local LINKS_FILE="$SERVICE_ROOT/LINKS"
+
+  plugn trigger service-action pre-configure "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
+  
+  # Create service directory structure
+  mkdir -p "$SERVICE_ROOT" || dokku_log_fail "Unable to create service directory"
+  mkdir -p "$SERVICE_ROOT/credentials" || dokku_log_fail "Unable to create credentials directory"
+  chmod 700 "$SERVICE_ROOT/credentials"
+  
+  # Initialize configuration files
+  touch "$LINKS_FILE"
+  touch "$SERVICE_ROOT/DOMAINS"
+  touch "$SERVICE_ROOT/BACKEND"
+  touch "$SERVICE_ROOT/CONFIG"
+  
+  # Set default configuration
+  echo "# DNS Sync Service Configuration" > "$SERVICE_ROOT/CONFIG"
+  echo "# Backend: not configured" >> "$SERVICE_ROOT/CONFIG"
+  echo "# Use 'dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>' to set DNS provider" >> "$SERVICE_ROOT/CONFIG"
+  
+  plugn trigger service-action post-configure "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
+  
+  dokku_log_info2 "$PLUGIN_SERVICE service configured: $SERVICE"
+  dokku_log_info1 "Next steps:"
+  dokku_log_info1 "  1. Set DNS backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <aws|cloudflare>"
+  dokku_log_info1 "  2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE <credentials>"
+  dokku_log_info1 "  3. Add domains: dokku $PLUGIN_COMMAND_PREFIX:add-domain $SERVICE <domain>"
+}
+
 service_create() {
   local SERVICE="$1"
   is_valid_service_name "$SERVICE" || dokku_log_fail "Please specify a valid name for the service. Valid characters are: [A-Za-z0-9_]+"
@@ -230,4 +266,116 @@ service_url() {
   local DATABASE_NAME="$(get_database_name "$SERVICE")"
   local PASSWORD="$(service_password "$SERVICE")"
   echo "$PLUGIN_SCHEME://postgres:$PASSWORD@$SERVICE_DNS_HOSTNAME:${PLUGIN_DATASTORE_PORTS[0]}/$DATABASE_NAME"
+}
+
+# DNS Backend Functions
+dns_load_backend() {
+  local SERVICE="$1"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
+  
+  if [[ ! -f "$BACKEND_FILE" ]]; then
+    dokku_log_fail "No backend configured for service $SERVICE. Run: dokku dns-sync:set-backend $SERVICE <backend>"
+  fi
+  
+  local BACKEND
+  BACKEND="$(cat "$BACKEND_FILE")"
+  
+  if [[ -z "$BACKEND" ]]; then
+    dokku_log_fail "Backend not set for service $SERVICE. Run: dokku dns-sync:set-backend $SERVICE <backend>"
+  fi
+  
+  local BACKEND_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/backends/$BACKEND"
+  
+  if [[ ! -f "$BACKEND_FILE" ]]; then
+    dokku_log_fail "Backend '$BACKEND' not found. Available backends: aws, cloudflare"
+  fi
+  
+  source "$BACKEND_FILE"
+  echo "$BACKEND"
+}
+
+dns_get_service_domains() {
+  local SERVICE="$1"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local DOMAINS_FILE="$SERVICE_ROOT/DOMAINS"
+  
+  if [[ -f "$DOMAINS_FILE" ]]; then
+    cat "$DOMAINS_FILE"
+  fi
+}
+
+dns_add_domain_to_service() {
+  local SERVICE="$1"
+  local DOMAIN="$2"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local DOMAINS_FILE="$SERVICE_ROOT/DOMAINS"
+  
+  # Check if domain already exists
+  if grep -qx "$DOMAIN" "$DOMAINS_FILE" 2>/dev/null; then
+    dokku_log_warn "Domain $DOMAIN already configured for service $SERVICE"
+    return 0
+  fi
+  
+  echo "$DOMAIN" >> "$DOMAINS_FILE"
+  sort "$DOMAINS_FILE" -u -o "$DOMAINS_FILE"
+  dokku_log_info1 "Added domain $DOMAIN to service $SERVICE"
+}
+
+dns_remove_domain_from_service() {
+  local SERVICE="$1"
+  local DOMAIN="$2"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  local DOMAINS_FILE="$SERVICE_ROOT/DOMAINS"
+  
+  if [[ ! -f "$DOMAINS_FILE" ]]; then
+    dokku_log_warn "No domains file found for service $SERVICE"
+    return 0
+  fi
+  
+  sed -i.bak "/^$DOMAIN$/d" "$DOMAINS_FILE" && rm -f "$DOMAINS_FILE.bak"
+  dokku_log_info1 "Removed domain $DOMAIN from service $SERVICE"
+}
+
+dns_sync_service() {
+  local SERVICE="$1"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+  
+  # Load the backend
+  local BACKEND
+  BACKEND=$(dns_load_backend "$SERVICE")
+  
+  # Get linked apps
+  local LINKS_FILE="$SERVICE_ROOT/LINKS"
+  if [[ ! -f "$LINKS_FILE" ]] || [[ ! -s "$LINKS_FILE" ]]; then
+    dokku_log_warn "No apps linked to service $SERVICE. Use: dokku dns-sync:link $SERVICE <app>"
+    return 0
+  fi
+  
+  # Get domains to sync
+  local DOMAINS
+  DOMAINS=$(dns_get_service_domains "$SERVICE")
+  
+  if [[ -z "$DOMAINS" ]]; then
+    dokku_log_warn "No domains configured for service $SERVICE. Use: dokku dns-sync:add-domain $SERVICE <domain>"
+    return 0
+  fi
+  
+  # Sync each domain with each linked app
+  while IFS= read -r APP; do
+    [[ -z "$APP" ]] && continue
+    dokku_log_info2 "Syncing domains for app: $APP"
+    
+    while IFS= read -r DOMAIN; do
+      [[ -z "$DOMAIN" ]] && continue
+      dokku_log_verbose "Syncing domain: $DOMAIN"
+      
+      # Call backend-specific sync function
+      if declare -f "dns_backend_${BACKEND}_sync_domain" >/dev/null; then
+        "dns_backend_${BACKEND}_sync_domain" "$SERVICE" "$DOMAIN" "$APP"
+      else
+        dokku_log_fail "Backend $BACKEND does not support domain syncing"
+      fi
+    done <<< "$DOMAINS"
+  done < "$LINKS_FILE"
 }
