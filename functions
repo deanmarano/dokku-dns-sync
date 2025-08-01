@@ -39,7 +39,6 @@ service_configure() {
   
   # Initialize configuration files
   touch "$LINKS_FILE"
-  touch "$SERVICE_ROOT/DOMAINS"
   touch "$SERVICE_ROOT/BACKEND"
   touch "$SERVICE_ROOT/CONFIG"
   
@@ -53,8 +52,9 @@ service_configure() {
   dokku_log_info2 "$PLUGIN_SERVICE service configured: $SERVICE"
   dokku_log_info1 "Next steps:"
   dokku_log_info1 "  1. Set DNS backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <aws|cloudflare>"
-  dokku_log_info1 "  2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE <credentials>"
-  dokku_log_info1 "  3. Add domains: dokku $PLUGIN_COMMAND_PREFIX:add-domain $SERVICE <domain>"
+  dokku_log_info1 "  2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
+  dokku_log_info1 "  3. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
+  dokku_log_info1 "  4. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
 }
 
 service_create() {
@@ -352,30 +352,16 @@ dns_sync_service() {
     return 0
   fi
   
-  # Get domains to sync
-  local DOMAINS
-  DOMAINS=$(dns_get_service_domains "$SERVICE")
-  
-  if [[ -z "$DOMAINS" ]]; then
-    dokku_log_warn "No domains configured for service $SERVICE. Use: dokku dns-sync:add-domain $SERVICE <domain>"
-    return 0
-  fi
-  
-  # Sync each domain with each linked app
+  # Sync each linked app (domains are discovered automatically)
   while IFS= read -r APP; do
     [[ -z "$APP" ]] && continue
-    dokku_log_info2 "Syncing domains for app: $APP"
+    dokku_log_info2 "Syncing DNS for app: $APP"
     
-    while IFS= read -r DOMAIN; do
-      [[ -z "$DOMAIN" ]] && continue
-      dokku_log_verbose "Syncing domain: $DOMAIN"
-      
-      # Call backend-specific sync function
-      if declare -f "dns_backend_${BACKEND}_sync_domain" >/dev/null; then
-        "dns_backend_${BACKEND}_sync_domain" "$SERVICE" "$DOMAIN" "$APP"
-      else
-        dokku_log_fail "Backend $BACKEND does not support domain syncing"
-      fi
-    done <<< "$DOMAINS"
+    # Call backend-specific sync function for the entire app
+    if declare -f "dns_backend_${BACKEND}_sync_app" >/dev/null; then
+      "dns_backend_${BACKEND}_sync_app" "$SERVICE" "$APP"
+    else
+      dokku_log_fail "Backend $BACKEND does not support app syncing"
+    fi
   done < "$LINKS_FILE"
 }

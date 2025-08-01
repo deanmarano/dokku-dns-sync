@@ -157,33 +157,51 @@ dns_backend_aws_list_records() {
     --output table 2>/dev/null
 }
 
-dns_backend_aws_sync_domain() {
+dns_backend_aws_sync_app() {
   local SERVICE="$1"
-  local DOMAIN="$2"
-  local APP="$3"
+  local APP="$2"
   
   dns_backend_aws_validate_credentials "$SERVICE"
   dns_backend_aws_setup_env "$SERVICE"
   
-  # Get the app's current IP/hostname from Dokku
-  local APP_URL
-  APP_URL=$(dokku urls:report "$APP" --urls-app-urls 2>/dev/null | head -n1 | sed 's|https\?://||' | cut -d/ -f1)
+  # Get all domains for the app from Dokku
+  local APP_DOMAINS
+  APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null)
   
-  if [[ -z "$APP_URL" ]]; then
-    dokku_log_warn "No URL found for app: $APP"
-    return 1
+  if [[ -z "$APP_DOMAINS" ]]; then
+    dokku_log_warn "No domains configured for app: $APP"
+    return 0
   fi
   
-  # For now, create an A record pointing to the server's IP
-  # In a real implementation, you might want to resolve the hostname to IP
+  # Get the server's IP (where this Dokku instance is running)
+  # We'll use the global domains to determine the server IP
   local SERVER_IP
-  SERVER_IP=$(dig +short "$APP_URL" | tail -n1)
+  local GLOBAL_DOMAINS
+  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null)
+  
+  if [[ -n "$GLOBAL_DOMAINS" ]]; then
+    # Use the first global domain to resolve server IP
+    local FIRST_GLOBAL_DOMAIN
+    FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
+    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1)
+  fi
+  
+  # If no global domains or couldn't resolve, try to get server IP another way
+  if [[ -z "$SERVER_IP" ]]; then
+    # Try to get the server's public IP
+    SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipecho.net/plain 2>/dev/null || curl -s icanhazip.com 2>/dev/null)
+  fi
   
   if [[ -z "$SERVER_IP" ]]; then
-    dokku_log_warn "Could not resolve IP for: $APP_URL"
-    return 1
+    dokku_log_fail "Could not determine server IP. Please ensure your server has internet access or configure global domains."
   fi
   
-  dokku_log_info1 "Syncing domain $DOMAIN -> $SERVER_IP (from app: $APP)"
-  dns_backend_aws_create_record "$DOMAIN" "A" "$SERVER_IP"
+  dokku_log_info2 "Syncing domains for app '$APP' to server IP: $SERVER_IP"
+  
+  # Sync each domain
+  echo "$APP_DOMAINS" | while IFS= read -r DOMAIN; do
+    [[ -z "$DOMAIN" ]] && continue
+    dokku_log_info1 "Syncing domain: $DOMAIN"
+    dns_backend_aws_create_record "$DOMAIN" "A" "$SERVER_IP"
+  done
 }
