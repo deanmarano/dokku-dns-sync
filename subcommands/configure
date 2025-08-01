@@ -7,22 +7,38 @@ source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-configure-cmd() {
   #E configure a $PLUGIN_COMMAND_PREFIX service named prod-dns
-  #E dokku $PLUGIN_COMMAND_PREFIX:configure prod-dns
+  #E dokku $PLUGIN_COMMAND_PREFIX:configure prod-dns [aws|cloudflare]
   #E this creates a DNS synchronization service configuration that can manage
   #E domains for one or more Dokku apps with a specific DNS provider backend.
+  #E if no backend is specified, defaults to '$DNS_SYNC_DEFAULT_BACKEND'
   #E after configuration, use other commands to:
-  #E - set the DNS backend (aws, cloudflare): dokku $PLUGIN_COMMAND_PREFIX:set-backend prod-dns aws
-  #E - configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth prod-dns <credentials>
-  #E - add domains to sync: dokku $PLUGIN_COMMAND_PREFIX:add-domain prod-dns example.com
+  #E - configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth prod-dns
+  #E - link to app: dokku $PLUGIN_COMMAND_PREFIX:link prod-dns myapp
+  #E - sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync prod-dns
   #A service, service name to configure
+  #A backend, DNS provider backend (aws, cloudflare) - optional, defaults to aws
   declare desc="configure a $PLUGIN_SERVICE service"
   local cmd="$PLUGIN_COMMAND_PREFIX:configure" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
-  declare SERVICE="$1"
+  declare SERVICE="$1" BACKEND="$2"
 
   [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a valid name for the service"
   
-  service_configure "$SERVICE"
+  # Use default backend if not specified
+  if [[ -z "$BACKEND" ]]; then
+    BACKEND="$DNS_SYNC_DEFAULT_BACKEND"
+  fi
+  
+  # Validate backend
+  case "$BACKEND" in
+    aws|cloudflare)
+      ;;
+    *)
+      dokku_log_fail "Invalid backend '$BACKEND'. Supported backends: aws, cloudflare"
+      ;;
+  esac
+  
+  service_configure "$SERVICE" "$BACKEND"
 }
 
 service-configure-cmd "$@"

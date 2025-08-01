@@ -22,13 +22,14 @@ service_connect() {
 }
 
 service_configure() {
-  local SERVICE="$1"
+  local SERVICE="$1" BACKEND="$2"
   is_valid_service_name "$SERVICE" || dokku_log_fail "Please specify a valid name for the service. Valid characters are: [A-Za-z0-9_]+"
   [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a valid name for the service"
   [[ ! -d "$PLUGIN_DATA_ROOT/$SERVICE" ]] || dokku_log_fail "$PLUGIN_SERVICE service $SERVICE already exists"
   
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
   local LINKS_FILE="$SERVICE_ROOT/LINKS"
+  local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
 
   plugn trigger service-action pre-configure "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
   
@@ -39,22 +40,38 @@ service_configure() {
   
   # Initialize configuration files
   touch "$LINKS_FILE"
-  touch "$SERVICE_ROOT/BACKEND"
   touch "$SERVICE_ROOT/CONFIG"
   
-  # Set default configuration
-  echo "# DNS Sync Service Configuration" > "$SERVICE_ROOT/CONFIG"
-  echo "# Backend: not configured" >> "$SERVICE_ROOT/CONFIG"
-  echo "# Use 'dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>' to set DNS provider" >> "$SERVICE_ROOT/CONFIG"
+  # Set backend if provided
+  if [[ -n "$BACKEND" ]]; then
+    echo "$BACKEND" > "$BACKEND_FILE"
+    echo "# DNS Sync Service Configuration" > "$SERVICE_ROOT/CONFIG"
+    echo "# Backend: $BACKEND" >> "$SERVICE_ROOT/CONFIG"
+    echo "# Configured on: $(date)" >> "$SERVICE_ROOT/CONFIG"
+  else
+    touch "$BACKEND_FILE"
+    echo "# DNS Sync Service Configuration" > "$SERVICE_ROOT/CONFIG"
+    echo "# Backend: not configured" >> "$SERVICE_ROOT/CONFIG"
+    echo "# Use 'dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>' to set DNS provider" >> "$SERVICE_ROOT/CONFIG"
+  fi
   
   plugn trigger service-action post-configure "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
   
   dokku_log_info2 "$PLUGIN_SERVICE service configured: $SERVICE"
-  dokku_log_info1 "Next steps:"
-  dokku_log_info1 "  1. Set DNS backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <aws|cloudflare>"
-  dokku_log_info1 "  2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
-  dokku_log_info1 "  3. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
-  dokku_log_info1 "  4. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
+  
+  if [[ -n "$BACKEND" ]]; then
+    dokku_log_info2 "Backend set to: $BACKEND"
+    dokku_log_info1 "Next steps:"
+    dokku_log_info1 "  1. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
+    dokku_log_info1 "  2. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
+    dokku_log_info1 "  3. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
+  else
+    dokku_log_info1 "Next steps:"
+    dokku_log_info1 "  1. Set DNS backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <aws|cloudflare>"
+    dokku_log_info1 "  2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
+    dokku_log_info1 "  3. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
+    dokku_log_info1 "  4. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
+  fi
 }
 
 service_create() {
