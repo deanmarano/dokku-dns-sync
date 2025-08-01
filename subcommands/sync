@@ -6,20 +6,20 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-sync-cmd() {
-  #E synchronize DNS records for all linked apps using the configured backend
-  #E dokku $PLUGIN_COMMAND_PREFIX:sync prod-dns
-  #E this will discover all domains from linked apps and update DNS records
-  #E to point to the current server's IP address using the configured backend
-  #A service, service to sync DNS records for
-  declare desc="synchronize DNS records for $PLUGIN_SERVICE service"
+  #E synchronize DNS records for an app using the configured backend
+  #E dokku $PLUGIN_COMMAND_PREFIX:sync nextcloud
+  #E this will discover all domains from the app and update DNS records
+  #E to point to the current server's IP address using the default configured backend
+  #A app, app to sync DNS records for
+  declare desc="synchronize DNS records for app"
   local cmd="$PLUGIN_COMMAND_PREFIX:sync" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
-  declare SERVICE="$1"
+  declare APP="$1"
 
-  [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a service name"
-  verify_service_name "$SERVICE"
+  [[ -z "$APP" ]] && dokku_log_fail "Please specify an app name"
+  verify_app_name "$APP"
   
-  dns_sync_service "$SERVICE"
+  dns_sync_app "$APP"
 }
 
 service-sync-cmd "$@"

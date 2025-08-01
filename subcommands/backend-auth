@@ -6,34 +6,29 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-backend-auth-cmd() {
-  #E configure backend authentication credentials for a service
-  #E dokku $PLUGIN_COMMAND_PREFIX:backend-auth prod-dns
+  #E configure backend authentication credentials
+  #E dokku $PLUGIN_COMMAND_PREFIX:backend-auth
   #E for AWS: prompts for AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
   #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN
-  #A service, service to configure authentication for
-  declare desc="configure backend authentication for $PLUGIN_SERVICE service"
+  declare desc="configure backend authentication for $PLUGIN_SERVICE"
   local cmd="$PLUGIN_COMMAND_PREFIX:backend-auth" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
-  declare SERVICE="$1"
-
-  [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a service name"
-  verify_service_name "$SERVICE"
   
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local BACKEND_FILE="$GLOBAL_CONFIG_ROOT/BACKEND"
   
   if [[ ! -f "$BACKEND_FILE" ]]; then
-    dokku_log_fail "No backend configured for service $SERVICE. Run: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>"
+    dokku_log_fail "No backend configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <backend>"
   fi
   
   local BACKEND
   BACKEND="$(cat "$BACKEND_FILE")"
   
   if [[ -z "$BACKEND" ]]; then
-    dokku_log_fail "Backend not set for service $SERVICE. Run: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>"
+    dokku_log_fail "Backend not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <backend>"
   fi
   
-  local CREDENTIALS_DIR="$SERVICE_ROOT/credentials"
+  local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
   mkdir -p "$CREDENTIALS_DIR"
   chmod 700 "$CREDENTIALS_DIR"
   
@@ -96,7 +91,7 @@ service-backend-auth-cmd() {
       
       # Validate credentials by testing AWS API access
       dokku_log_info1 "Validating AWS credentials..."
-      if dns_backend_aws_validate_credentials "$SERVICE" && dns_backend_aws_setup_env "$SERVICE" && aws sts get-caller-identity >/dev/null 2>&1; then
+      if dns_backend_aws_validate_credentials && dns_backend_aws_setup_env && aws sts get-caller-identity >/dev/null 2>&1; then
         dokku_log_info2 "✓ AWS credentials validated successfully"
         
         # Show available hosted zones
