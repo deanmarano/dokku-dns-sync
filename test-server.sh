@@ -69,6 +69,40 @@ run_remote_command() {
     echo "" >> "$LOG_FILE"
 }
 
+cleanup_aws_credentials() {
+    log "INFO" "Restoring original AWS configuration..."
+    
+    if [[ -f "/tmp/aws_credentials_backup" ]]; then
+        run_remote_command "Restore original AWS credentials" "
+            if [[ -f /tmp/aws_credentials_backup ]]; then
+                mkdir -p ~/.aws
+                cp /tmp/aws_credentials_backup ~/.aws/credentials
+            fi
+        " || log "WARNING" "Failed to restore AWS credentials"
+    else
+        run_remote_command "Remove test AWS credentials" "rm -f ~/.aws/credentials && sudo rm -f /root/.aws/credentials" || log "WARNING" "Failed to remove test credentials"
+    fi
+    
+    if [[ -f "/tmp/aws_config_backup" ]]; then
+        run_remote_command "Restore original AWS config" "
+            if [[ -f /tmp/aws_config_backup ]]; then
+                mkdir -p ~/.aws
+                cp /tmp/aws_config_backup ~/.aws/config
+            fi
+        " || log "WARNING" "Failed to restore AWS config"
+    else
+        run_remote_command "Remove test AWS config" "rm -f ~/.aws/config && sudo rm -f /root/.aws/config" || log "WARNING" "Failed to remove test config"
+    fi
+    
+    # Clean up backup files
+    run_remote_command "Clean up backup files" "rm -f /tmp/aws_credentials_backup /tmp/aws_config_backup" || true
+    
+    log "SUCCESS" "AWS configuration restored to original state"
+}
+
+# Set up trap to ensure cleanup runs even if script fails
+trap cleanup_aws_credentials EXIT
+
 main() {
     log "INFO" "Starting DNS Sync plugin test on server: $SERVER_HOST"
     log "INFO" "SSH User: $SSH_USER"
@@ -83,6 +117,39 @@ main() {
         exit 1
     fi
     log "SUCCESS" "SSH connection established"
+    echo ""
+    
+    # Check and backup existing AWS configuration
+    log "INFO" "Checking existing AWS configuration..."
+    run_remote_command "Check current AWS state" "
+        echo 'Current AWS CLI state:'
+        if command -v aws >/dev/null 2>&1; then
+            echo '✓ AWS CLI is installed'
+            if aws sts get-caller-identity 2>/dev/null; then
+                echo '✓ AWS CLI is configured and authenticated'
+            else
+                echo '⚠ AWS CLI is installed but not configured'
+            fi
+        else
+            echo '- AWS CLI is not installed'
+        fi
+    " || log "WARNING" "Failed to check AWS state"
+    
+    # Backup existing AWS configuration
+    run_remote_command "Backup existing AWS configuration" "
+        if [[ -f ~/.aws/credentials ]]; then
+            cp ~/.aws/credentials /tmp/aws_credentials_backup
+            echo 'Backed up existing AWS credentials'
+        else
+            echo 'No existing AWS credentials to backup'
+        fi
+        if [[ -f ~/.aws/config ]]; then
+            cp ~/.aws/config /tmp/aws_config_backup
+            echo 'Backed up existing AWS config'
+        else
+            echo 'No existing AWS config to backup'
+        fi
+    " || log "WARNING" "Failed to backup AWS configuration"
     echo ""
     
     # Check if Dokku is installed
@@ -113,12 +180,75 @@ main() {
     fi
     echo ""
     
+    # Set up temporary AWS credentials for testing (if available locally)
+    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        log "INFO" "Setting up temporary AWS credentials for testing..."
+        echo "Local AWS credentials detected - configuring temporarily on remote server"
+        
+        # Configure temporary AWS CLI on remote server (both user and root)
+        run_remote_command "Configure temporary AWS CLI credentials" "
+            # Configure for current user
+            mkdir -p ~/.aws && 
+            cat > ~/.aws/credentials << EOF
+[default]
+aws_access_key_id = ${AWS_ACCESS_KEY}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+EOF
+            
+            # Also configure for root (for sudo operations like plugin install)
+            sudo mkdir -p /root/.aws &&
+            sudo tee /root/.aws/credentials > /dev/null << EOF
+[default]
+aws_access_key_id = ${AWS_ACCESS_KEY}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+EOF
+        " || {
+            log "WARNING" "Failed to configure temporary AWS credentials, continuing without..."
+        }
+        
+        run_remote_command "Set temporary AWS default region" "
+            # Configure for current user
+            cat > ~/.aws/config << 'EOF'
+[default]
+region = us-east-1
+output = json
+EOF
+            
+            # Also configure for root
+            sudo tee /root/.aws/config > /dev/null << 'EOF'
+[default]
+region = us-east-1
+output = json
+EOF
+        " || {
+            log "WARNING" "Failed to set temporary AWS region, continuing..."
+        }
+        
+        # Test temporary AWS CLI configuration
+        run_remote_command "Test temporary AWS CLI configuration" "aws sts get-caller-identity" || {
+            log "WARNING" "Temporary AWS CLI test failed, but continuing with installation..."
+        }
+        
+        echo ""
+        log "SUCCESS" "Temporary AWS credentials configured - expecting best-case auto-detection!"
+        echo ""
+    else
+        log "INFO" "No local AWS credentials found in environment"
+        echo "Set AWS_ACCESS_KEY and AWS_SECRET_ACCESS_KEY to test with credentials"
+        echo ""
+    fi
+    
     # Install the plugin from GitHub
     log "INFO" "Installing dns plugin from GitHub..."
-    echo "Expected installation scenarios:"
-    echo "  ✓ Best case: AWS CLI ready → Immediate use"
-    echo "  🔧 Good case: AWS CLI detected → Needs 'aws configure'"
-    echo "  ⚙️ Setup needed: No CLI detected → Manual setup required"
+    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        echo "Expected installation scenario with AWS credentials:"
+        echo "  🚀 Best case expected: AWS CLI ready with Route53 access → Immediate use"
+        echo "     Should see: ✓ Route53 access confirmed with hosted zone count"
+    else
+        echo "Expected installation scenarios without credentials:"
+        echo "  🔧 Expected: AWS CLI detected → Needs 'aws configure'"
+        echo "  ⚙️ Fallback: No CLI detected → Manual setup required"
+    fi
     echo ""
     
     run_remote_command "Install dns plugin with auto-detection" "sudo dokku plugin:install $PLUGIN_REPO" || {
@@ -199,6 +329,23 @@ main() {
         run_remote_command "Test commands without CLI" "sudo dokku dns:verify 2>&1 || true"
     fi
     echo ""
+    
+    # Test with real domains if AWS is properly configured
+    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        log "INFO" "Testing intelligent domain matching with configured AWS..."
+        
+        # First check if we have any hosted zones
+        if run_remote_command "List Route53 hosted zones" "aws route53 list-hosted-zones --query 'HostedZones[].Name' --output table 2>/dev/null || echo 'No hosted zones or limited access'"; then
+            log "INFO" "If you have hosted zones, you can test domain matching with a real app"
+            echo "Example test you can run manually:"
+            echo "  1. Create test app: sudo dokku apps:create test-dns-app"
+            echo "  2. Add domain that matches a hosted zone: sudo dokku domains:add test-dns-app yourdomain.com"
+            echo "  3. Test DNS add: sudo dokku dns:add test-dns-app"
+            echo "  4. Test DNS sync: sudo dokku dns:sync test-dns-app"
+            echo "  5. Clean up: sudo dokku apps:destroy test-dns-app"
+        fi
+        echo ""
+    fi
     
     # Test intelligent provider matching system
     log "INFO" "Testing intelligent provider matching system..."
@@ -281,6 +428,11 @@ main() {
     echo "📊 Diagnostic commands:"
     echo "  sudo dokku dns:verify                           # Test provider access"
     echo "  sudo dokku dns:report myapp                     # Show domain → provider mapping"
+    
+    echo ""
+    echo "===================================================================================="
+    log "INFO" "TEST COMPLETED - Log file saved as: $LOG_FILE"
+    echo "===================================================================================="
 }
 
 # Check if script is being sourced or executed
