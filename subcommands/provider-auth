@@ -5,36 +5,43 @@ set -eo pipefail
 source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
-service-backend-auth-cmd() {
-  #E configure backend authentication credentials
-  #E dokku $PLUGIN_COMMAND_PREFIX:backend-auth
+service-provider-auth-cmd() {
+  #E configure provider authentication credentials
+  #E dokku $PLUGIN_COMMAND_PREFIX:provider-auth
   #E for AWS: prompts for AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
   #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN
-  declare desc="configure backend authentication for $PLUGIN_SERVICE"
-  local cmd="$PLUGIN_COMMAND_PREFIX:backend-auth" argv=("$@")
+  declare desc="configure provider authentication for $PLUGIN_SERVICE"
+  local cmd="$PLUGIN_COMMAND_PREFIX:provider-auth" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
   
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
-  local BACKEND_FILE="$GLOBAL_CONFIG_ROOT/BACKEND"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
-  if [[ ! -f "$BACKEND_FILE" ]]; then
-    dokku_log_fail "No backend configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <backend>"
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "No provider configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
   fi
   
-  local BACKEND
-  BACKEND="$(cat "$BACKEND_FILE")"
+  local PROVIDER
+  PROVIDER="$(cat "$PROVIDER_FILE")"
   
-  if [[ -z "$BACKEND" ]]; then
-    dokku_log_fail "Backend not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <backend>"
+  if [[ -z "$PROVIDER" ]]; then
+    dokku_log_fail "Provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
   fi
+  
+  # Load the provider functions
+  local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
+  if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
+    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
+  fi
+  source "$PROVIDER_SCRIPT"
   
   local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
   mkdir -p "$CREDENTIALS_DIR"
   chmod 700 "$CREDENTIALS_DIR"
   
-  case "$BACKEND" in
+  case "$PROVIDER" in
     aws)
-      dokku_log_info2 "Configuring AWS Route53 credentials for service: $SERVICE"
+      dokku_log_info2 "Configuring AWS Route53 credentials"
       
       # Check if AWS CLI is already configured system-wide or per-user
       local USE_EXISTING=false
@@ -91,7 +98,7 @@ service-backend-auth-cmd() {
       
       # Validate credentials by testing AWS API access
       dokku_log_info1 "Validating AWS credentials..."
-      if dns_backend_aws_validate_credentials && dns_backend_aws_setup_env && aws sts get-caller-identity >/dev/null 2>&1; then
+      if dns_provider_aws_validate_credentials && dns_provider_aws_setup_env && aws sts get-caller-identity >/dev/null 2>&1; then
         dokku_log_info2 "✓ AWS credentials validated successfully"
         
         # Show available hosted zones
@@ -103,7 +110,7 @@ service-backend-auth-cmd() {
       ;;
       
     cloudflare)
-      dokku_log_info2 "Configuring Cloudflare credentials for service: $SERVICE"
+      dokku_log_info2 "Configuring Cloudflare credentials"
       
       echo -n "Cloudflare API Token: "
       read -rs CLOUDFLARE_API_TOKEN
@@ -128,12 +135,12 @@ service-backend-auth-cmd() {
       ;;
       
     *)
-      dokku_log_fail "Unknown backend: $BACKEND"
+      dokku_log_fail "Unknown provider: $PROVIDER"
       ;;
   esac
   
-  dokku_log_info2 "Backend authentication configured for service: $SERVICE"
-  dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
+  dokku_log_info2 "Provider authentication configured successfully"
+  dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
 }
 
-service-backend-auth-cmd "$@"
+service-provider-auth-cmd "$@"

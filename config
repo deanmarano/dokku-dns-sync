@@ -4,8 +4,8 @@ export DNS_SYNC_ROOT=${DNS_SYNC_ROOT:="$DOKKU_LIB_ROOT/services/dns-sync"}
 export DOKKU_LIB_HOST_ROOT=${DOKKU_LIB_HOST_ROOT:=$DOKKU_LIB_ROOT}
 export DNS_SYNC_HOST_ROOT=${DNS_SYNC_HOST_ROOT:="$DOKKU_LIB_HOST_ROOT/services/dns-sync"}
 
-export PLUGIN_UNIMPLEMENTED_SUBCOMMANDS=("app-links" "backup" "backup-auth" "backup-deauth" "backup-schedule" "backup-schedule-cat" "backup-set-encryption" "backup-set-public-key-encryption" "backup-unschedule" "backup-unset-encryption" "backup-unset-public-key-encryption" "clone" "connect" "enter" "export" "expose" "import" "link" "linked" "links" "logs" "pause" "promote" "restart" "start" "stop" "unexpose" "unlink" "upgrade")
-export PLUGIN_COMMAND_PREFIX="dns-sync"
+export PLUGIN_UNIMPLEMENTED_SUBCOMMANDS=("app-links" "backup" "backup-auth" "backup-deauth" "backup-schedule" "backup-schedule-cat" "backup-set-encryption" "backup-set-public-key-encryption" "backup-unschedule" "backup-unset-encryption" "backup-unset-public-key-encryption" "clone" "connect" "destroy" "enter" "exists" "export" "expose" "import" "info" "link" "linked" "links" "list" "logs" "pause" "promote" "restart" "set" "set-provider" "start" "stop" "unexpose" "unlink" "upgrade")
+export PLUGIN_COMMAND_PREFIX="dns"
 export PLUGIN_CONFIG_ROOT=${PLUGIN_CONFIG_ROOT:="$DOKKU_LIB_ROOT/config/$PLUGIN_COMMAND_PREFIX"}
 export PLUGIN_DATA_ROOT=$DNS_SYNC_ROOT
 export PLUGIN_DATA_HOST_ROOT=$DNS_SYNC_HOST_ROOT
@@ -26,4 +26,4 @@ export PLUGIN_BUSYBOX_IMAGE=${PLUGIN_BUSYBOX_IMAGE:=busybox:1.37.0-uclibc}
 
 # DNS sync specific configuration
 export DNS_SYNC_CONFIG_OPTIONS=${DNS_SYNC_CONFIG_OPTIONS:=""}
-export DNS_SYNC_DEFAULT_BACKEND=${DNS_SYNC_DEFAULT_BACKEND:="aws"}
+export DNS_SYNC_DEFAULT_PROVIDER=${DNS_SYNC_DEFAULT_PROVIDER:="aws"}

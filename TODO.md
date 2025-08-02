@@ -1,48 +1,66 @@
 # DNS Sync Plugin Development TODO
 
-## Phase 1: Core Foundation (High Priority)
+## Phase 1: Core Foundation (High Priority) - COMPLETED ✅
 
 - [x] **Update core configuration** - Transform postgres config to dns-sync ✅
-- [x] **Create dns-sync:configure** - Initialize DNS service configuration ✅ 
-- [ ] **Implement dns-sync:set-backend** - Configure AWS/Cloudflare backend
-- [ ] **Create dns-sync:backend-auth** - Store provider credentials securely
-- [ ] **Implement dns-sync:add-domain** - Add domains to sync configuration
-- [x] **Create AWS Route53 backend** - Basic aws-cli integration ✅
-- [ ] **Implement dns-sync:sync** - Manual domain record synchronization
+- [x] **Create dns-sync:configure** - Initialize global DNS configuration ✅ 
+- [x] **Implement dns-sync:set-backend** - Configure AWS/Cloudflare backend ✅
+- [x] **Create dns-sync:backend-auth** - Store provider credentials securely ✅
+- [x] **Create AWS Route53 backend** - Full aws-cli integration with hosted zone discovery ✅
+- [x] **Implement dns-sync:sync** - Manual domain record synchronization ✅
+- [x] **Simplify API** - Remove service-based approach, work directly with apps ✅
 
-## Phase 2: Integration (Medium Priority)  
+## Phase 2: Integration (Medium Priority) - COMPLETED ✅
 
-- [ ] **Create dns-sync:link** - Associate DNS service with Dokku app
-- [ ] **Update common-functions** - Remove postgres utilities, add DNS helpers
-- [ ] **Implement dns-sync:info** - Show service configuration and status
-- [ ] **Add automatic sync hooks** - Sync on app deploy/scale events
+- [x] **Remove dns-sync:link** - Eliminated unnecessary service linking ✅
+- [x] **Update common-functions** - Added global DNS configuration helpers ✅
+- [x] **Create dns-sync:report** - Display DNS sync status and configuration ✅
+- [x] **Write BATS tests** - Comprehensive test coverage for AWS backend ✅
+- [x] **Create remote test script** - Server installation and testing automation ✅
 
-## Phase 3: Polish (Low Priority)
+## Phase 3: Polish (In Progress)
 
-- [ ] **Implement dns-sync:list** - Show all DNS sync services
+- [x] **Clean up help output** - Solidified simplified API design ✅
+- [ ] **Add support for multiple DNS record types** - CNAME, MX, TXT records
+- [ ] **Implement domain validation** - Validate domains before DNS changes
+- [ ] **Add DNS record backup/restore** - Safety features for DNS changes
+- [ ] **Create DNS health monitoring** - Periodic DNS record validation
 - [ ] **Create Cloudflare backend** - Second provider integration
-- [ ] **Add error handling** - Comprehensive DNS operation validation
-- [ ] **Write BATS tests** - Test coverage for all subcommands
 
 ## Notes
 
-The first 7 items will get you to a working DNS sync for a single domain with AWS Route53. Items 1-4 establish the foundation, items 5-7 enable actual domain synchronization.
+**Major API Simplification**: The plugin has been completely redesigned from a service-based architecture (like dokku-postgres) to a global configuration approach. This eliminates the confusing two-step process and makes DNS sync work more intuitively with Dokku apps.
 
-### Expected Command Structure
+### Current API (Consolidated)
 
 ```bash
-dokku dns-sync:configure <service>                 # Configure DNS sync service
-dokku dns-sync:destroy <service>                   # Remove DNS sync configuration  
-dokku dns-sync:link <service> <app>                # Link DNS service to app
-dokku dns-sync:unlink <service> <app>              # Unlink DNS service from app
-dokku dns-sync:set <service> <key> <value>         # Set configuration
-dokku dns-sync:info <service>                      # Show service information
-dokku dns-sync:list                                # List all DNS sync services
+# Core commands
+dokku dns:configure [provider]                     # Configure/change DNS provider globally (defaults to aws)
+dokku dns:provider-auth                            # Configure provider credentials  
+dokku dns:sync <app>                               # Sync all domains for an app to DNS provider
+dokku dns:report <app>                             # Show server IP, DNS status with emojis, and hosted zones for an app
 
-# DNS-specific commands
-dokku dns-sync:add-domain <service> <domain>       # Add domain to sync
-dokku dns-sync:remove-domain <service> <domain>    # Remove domain from sync
-dokku dns-sync:sync <service>                      # Manually trigger sync
-dokku dns-sync:set-backend <service> <backend>     # Set DNS backend (aws, cloudflare)
-dokku dns-sync:backend-auth <service> <credentials> # Configure backend credentials
+# Helper commands
+dokku dns:help                                     # Show all available commands
 ```
+
+### Workflow Example
+
+```bash
+# One-time setup
+dokku dns:configure aws
+dokku dns:provider-auth
+
+# Use with any app (domains are automatically discovered)
+dokku domains:add myapp example.com
+dokku dns:sync myapp
+
+# Check status
+dokku dns:report myapp
+
+# Change provider later if needed
+dokku dns:configure cloudflare
+dokku dns:provider-auth
+```
+
+The plugin now automatically discovers all domains configured for an app via `dokku domains:report` and creates A records pointing to the server's IP address.

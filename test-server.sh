@@ -6,8 +6,8 @@ set -euo pipefail
 
 SERVER_HOST="${1:-your-server.com}"
 SSH_USER="${2:-root}"
-PLUGIN_NAME="dns-sync"
-PLUGIN_REPO="https://github.com/deanmarano/dokku-dns-sync.git"
+PLUGIN_NAME="dns"
+PLUGIN_REPO="https://github.com/deanmarano/dokku-dns.git"
 LOG_FILE="test-server-$(date +%Y%m%d-%H%M%S).log"
 
 # Colors for output
@@ -54,7 +54,8 @@ run_remote_command() {
     echo "SSH Command: $command" >> "$LOG_FILE"
     echo "Output:" >> "$LOG_FILE"
     
-    if ssh "$SSH_USER@$SERVER_HOST" "$command" 2>&1 | tee -a "$LOG_FILE"; then
+    # Always use interactive SSH with terminal for password prompts
+    if ssh -t "$SSH_USER@$SERVER_HOST" "$command" 2>&1 | tee -a "$LOG_FILE"; then
         log "SUCCESS" "$description completed successfully"
         echo "Status: SUCCESS" >> "$LOG_FILE"
     else
@@ -74,9 +75,9 @@ main() {
     log "INFO" "Log file: $LOG_FILE"
     echo ""
     
-    # Test SSH connection
+    # Test SSH connection  
     log "INFO" "Testing SSH connection..."
-    if ! ssh -o ConnectTimeout=10 "$SSH_USER@$SERVER_HOST" "echo 'SSH connection successful'" >/dev/null 2>&1; then
+    if ! ssh -o ConnectTimeout=10 -t "$SSH_USER@$SERVER_HOST" "echo 'SSH connection successful'" >/dev/null 2>&1; then
         log "ERROR" "Cannot connect to $SERVER_HOST as $SSH_USER"
         log "ERROR" "Please check your SSH configuration and server details"
         exit 1
@@ -86,7 +87,7 @@ main() {
     
     # Check if Dokku is installed
     log "INFO" "Checking if Dokku is installed..."
-    run_remote_command "Check Dokku version" "sudo -n dokku version" || {
+    run_remote_command "Check Dokku version" "sudo dokku version" || {
         log "ERROR" "Dokku is not installed or not working on the server"
         exit 1
     }
@@ -94,27 +95,27 @@ main() {
     
     # Check current plugin status
     log "INFO" "Checking current plugin status..."
-    run_remote_command "List installed plugins" "sudo -n dokku plugin:list"
+    run_remote_command "List installed plugins" "sudo dokku plugin:list"
     echo ""
     
-    # Check if dns-sync plugin is installed
-    log "INFO" "Checking if dns-sync plugin is currently installed..."
-    if run_remote_command "Check dns-sync plugin" "sudo -n dokku plugin:list | grep -q dns-sync"; then
-        log "WARNING" "DNS Sync plugin is currently installed, will uninstall first"
+    # Check if dns plugin is installed
+    log "INFO" "Checking if dns plugin is currently installed..."
+    if run_remote_command "Check dns plugin" "sudo dokku plugin:list | grep -q dns"; then
+        log "WARNING" "DNS plugin is currently installed, will uninstall first"
         
         # Uninstall existing plugin
-        log "INFO" "Uninstalling existing dns-sync plugin..."
-        run_remote_command "Uninstall dns-sync plugin" "sudo -n dokku plugin:uninstall dns-sync --force" || {
+        log "INFO" "Uninstalling existing dns plugin..."
+        run_remote_command "Uninstall dns plugin" "sudo dokku plugin:uninstall dns --force" || {
             log "WARNING" "Plugin uninstall failed, continuing anyway..."
         }
     else
-        log "INFO" "DNS Sync plugin is not currently installed"
+        log "INFO" "DNS plugin is not currently installed"
     fi
     echo ""
     
     # Install the plugin from GitHub
-    log "INFO" "Installing dns-sync plugin from GitHub..."
-    run_remote_command "Install dns-sync plugin" "sudo -n dokku plugin:install $PLUGIN_REPO" || {
+    log "INFO" "Installing dns plugin from GitHub..."
+    run_remote_command "Install dns plugin" "sudo dokku plugin:install $PLUGIN_REPO" || {
         log "ERROR" "Plugin installation failed"
         exit 1
     }
@@ -122,39 +123,38 @@ main() {
     
     # Verify installation
     log "INFO" "Verifying installation..."
-    run_remote_command "Verify plugin installation" "sudo -n dokku plugin:list | grep dns-sync"
+    run_remote_command "Verify plugin installation" "sudo dokku plugin:list | grep dns"
     echo ""
     
     # Check available commands
-    log "INFO" "Checking available dns-sync commands..."
-    run_remote_command "List dns-sync commands" "sudo -n dokku help | grep dns-sync"
+    log "INFO" "Checking available dns commands..."
+    run_remote_command "List dns commands" "sudo dokku help | grep dns"
     echo ""
     
     # Test basic command functionality
     log "INFO" "Testing basic command functionality..."
-    run_remote_command "Test dns-sync help" "sudo -n dokku dns-sync:help" || {
+    run_remote_command "Test dns help" "sudo dokku dns:help" || {
         log "WARNING" "Help command failed, but plugin might still work"
     }
     echo ""
     
-    # Test service configuration (and cleanup)
-    log "INFO" "Testing service configuration..."
-    SERVICE_NAME="test-service-$(date +%s)"
+    # Test global configuration
+    log "INFO" "Testing global configuration..."
     
-    if run_remote_command "Configure test service" "sudo -n dokku dns-sync:configure $SERVICE_NAME aws"; then
-        log "SUCCESS" "Service configuration successful"
+    if run_remote_command "Configure DNS sync globally" "sudo dokku dns:configure aws"; then
+        log "SUCCESS" "Global configuration successful"
         
-        # Test backend-auth command (will fail without input, but should show it's working)
-        run_remote_command "Test backend-auth command" "timeout 5s sudo -n dokku dns-sync:backend-auth $SERVICE_NAME < /dev/null || true" || {
-            log "INFO" "Backend-auth command timed out as expected (requires input)"
+        # Test provider-auth command (will fail without input, but should show it's working)
+        run_remote_command "Test provider-auth command" "timeout 5s sudo dokku dns:provider-auth < /dev/null || true" || {
+            log "INFO" "Provider-auth command timed out as expected (requires input)"
         }
         
-        # Clean up test service
-        run_remote_command "Clean up test service" "sudo -n dokku --force dns-sync:destroy $SERVICE_NAME" || {
-            log "WARNING" "Failed to clean up test service $SERVICE_NAME"
+        # Test info/report command
+        run_remote_command "Test report command" "sudo dokku dns:report" || {
+            log "WARNING" "Report command failed, but configuration might still work"
         }
     else
-        log "ERROR" "Service configuration failed"
+        log "ERROR" "Global configuration failed"
     fi
     echo ""
     
@@ -176,10 +176,9 @@ main() {
     echo ""
     log "INFO" "You can now test the plugin with:"
     echo "  ssh $SSH_USER@$SERVER_HOST"
-    echo "  sudo dokku dns-sync:configure myservice aws"
-    echo "  sudo dokku dns-sync:backend-auth myservice"
-    echo "  sudo dokku dns-sync:link myservice myapp"
-    echo "  sudo dokku dns-sync:sync myservice"
+    echo "  sudo dokku dns:configure aws"
+    echo "  sudo dokku dns:provider-auth"
+    echo "  sudo dokku dns:sync myapp"
 }
 
 # Check if script is being sourced or executed

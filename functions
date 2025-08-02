@@ -285,31 +285,31 @@ service_url() {
   echo "$PLUGIN_SCHEME://postgres:$PASSWORD@$SERVICE_DNS_HOSTNAME:${PLUGIN_DATASTORE_PORTS[0]}/$DATABASE_NAME"
 }
 
-# DNS Backend Functions
-dns_load_backend() {
+# DNS Provider Functions
+dns_load_provider() {
   local SERVICE="$1"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
+  local PROVIDER_FILE="$SERVICE_ROOT/PROVIDER"
   
-  if [[ ! -f "$BACKEND_FILE" ]]; then
-    dokku_log_fail "No backend configured for service $SERVICE. Run: dokku dns-sync:set-backend $SERVICE <backend>"
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "No provider configured for service $SERVICE. Run: dokku dns:set-provider $SERVICE <provider>"
   fi
   
-  local BACKEND
-  BACKEND="$(cat "$BACKEND_FILE")"
+  local PROVIDER
+  PROVIDER="$(cat "$PROVIDER_FILE")"
   
-  if [[ -z "$BACKEND" ]]; then
-    dokku_log_fail "Backend not set for service $SERVICE. Run: dokku dns-sync:set-backend $SERVICE <backend>"
+  if [[ -z "$PROVIDER" ]]; then
+    dokku_log_fail "Provider not set for service $SERVICE. Run: dokku dns:set-provider $SERVICE <provider>"
   fi
   
-  local BACKEND_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/backends/$BACKEND"
+  local PROVIDER_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
   
-  if [[ ! -f "$BACKEND_FILE" ]]; then
-    dokku_log_fail "Backend '$BACKEND' not found. Available backends: aws, cloudflare"
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
   fi
   
-  source "$BACKEND_FILE"
-  echo "$BACKEND"
+  source "$PROVIDER_FILE"
+  echo "$PROVIDER"
 }
 
 dns_get_service_domains() {
@@ -354,31 +354,61 @@ dns_remove_domain_from_service() {
   dokku_log_info1 "Removed domain $DOMAIN from service $SERVICE"
 }
 
-dns_sync_service() {
-  local SERVICE="$1"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
+dns_configure_global() {
+  local PROVIDER="$1"
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  local CONFIG_FILE="$GLOBAL_CONFIG_ROOT/CONFIG"
   
-  # Load the backend
-  local BACKEND
-  BACKEND=$(dns_load_backend "$SERVICE")
+  # Create global config directory structure
+  mkdir -p "$GLOBAL_CONFIG_ROOT" || dokku_log_fail "Unable to create DNS sync directory"
+  mkdir -p "$GLOBAL_CONFIG_ROOT/credentials" || dokku_log_fail "Unable to create credentials directory"
+  chmod 700 "$GLOBAL_CONFIG_ROOT/credentials"
   
-  # Get linked apps
-  local LINKS_FILE="$SERVICE_ROOT/LINKS"
-  if [[ ! -f "$LINKS_FILE" ]] || [[ ! -s "$LINKS_FILE" ]]; then
-    dokku_log_warn "No apps linked to service $SERVICE. Use: dokku dns-sync:link $SERVICE <app>"
-    return 0
+  # Set provider
+  echo "$PROVIDER" > "$PROVIDER_FILE"
+  
+  # Create config file
+  echo "# DNS Sync Global Configuration" > "$CONFIG_FILE"
+  echo "# Provider: $PROVIDER" >> "$CONFIG_FILE"
+  echo "# Configured on: $(date)" >> "$CONFIG_FILE"
+  
+  dokku_log_info2 "DNS Sync configured globally with provider: $PROVIDER"
+  dokku_log_info1 "Next steps:"
+  dokku_log_info1 "  1. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+  dokku_log_info1 "  2. Sync an app: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+}
+
+dns_sync_app() {
+  local APP="$1"
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "DNS sync not configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
   fi
   
-  # Sync each linked app (domains are discovered automatically)
-  while IFS= read -r APP; do
-    [[ -z "$APP" ]] && continue
-    dokku_log_info2 "Syncing DNS for app: $APP"
-    
-    # Call backend-specific sync function for the entire app
-    if declare -f "dns_backend_${BACKEND}_sync_app" >/dev/null; then
-      "dns_backend_${BACKEND}_sync_app" "$SERVICE" "$APP"
-    else
-      dokku_log_fail "Backend $BACKEND does not support app syncing"
-    fi
-  done < "$LINKS_FILE"
+  local PROVIDER
+  PROVIDER="$(cat "$PROVIDER_FILE")"
+  
+  if [[ -z "$PROVIDER" ]]; then
+    dokku_log_fail "Provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  fi
+  
+  # Load the provider
+  local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
+  if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
+    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
+  fi
+  
+  source "$PROVIDER_SCRIPT"
+  
+  dokku_log_info2 "Syncing DNS for app: $APP using $PROVIDER provider"
+  
+  # Call provider-specific sync function for the app
+  if declare -f "dns_provider_${PROVIDER}_sync_app" >/dev/null; then
+    "dns_provider_${PROVIDER}_sync_app" "" "$APP"
+  else
+    dokku_log_fail "Provider $PROVIDER does not support app syncing"
+  fi
 }

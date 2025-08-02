@@ -8,7 +8,8 @@ source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 service-report-cmd() {
   #E display DNS sync status and domain information for an app
   #E dokku $PLUGIN_COMMAND_PREFIX:report myapp
-  #E shows all domains for the app, their current DNS records, and sync status
+  #E shows server IP, all domains for the app, DNS status with emojis, and hosted zones
+  #E DNS status: ✅ correct, ⚠️ wrong IP, ❌ no record
   #A app, app to generate DNS sync report for
   declare desc="display DNS sync status and domain information for an app"
   local cmd="$PLUGIN_COMMAND_PREFIX:report" argv=("$@")
@@ -23,11 +24,31 @@ service-report-cmd() {
 
 dns_sync_report() {
   local APP="$1"
-  local SERVICE_ROOT
-  local LINKED_SERVICES=()
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
   dokku_log_info2 "DNS Sync Report for app: $APP"
   dokku_log_info2 "$(printf "%-50s" "==============================")"
+  
+  # Get server's public IP first
+  local SERVER_IP
+  local GLOBAL_DOMAINS
+  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
+  
+  if [[ -n "$GLOBAL_DOMAINS" ]]; then
+    # Use the first global domain to resolve server IP
+    local FIRST_GLOBAL_DOMAIN
+    FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
+    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1 2>/dev/null || echo "")
+  fi
+  
+  # If no global domains or couldn't resolve, try to get server IP another way
+  if [[ -z "$SERVER_IP" ]]; then
+    # Try to get the server's public IP
+    SERVER_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || curl -s --max-time 3 ipecho.net/plain 2>/dev/null || curl -s --max-time 3 icanhazip.com 2>/dev/null || echo "Unknown")
+  fi
+  
+  dokku_log_info1 "Server Public IP: $SERVER_IP"
   
   # Get app domains
   local APP_DOMAINS
@@ -39,32 +60,64 @@ dns_sync_report() {
     return 0
   fi
   
-  # Find linked DNS sync services
-  if [[ -d "$PLUGIN_DATA_ROOT" ]]; then
-    for SERVICE_DIR in "$PLUGIN_DATA_ROOT"/*; do
-      [[ ! -d "$SERVICE_DIR" ]] && continue
-      local SERVICE_NAME
-      SERVICE_NAME=$(basename "$SERVICE_DIR")
-      local LINKS_FILE="$SERVICE_DIR/LINKS"
-      
-      if [[ -f "$LINKS_FILE" ]] && grep -qx "$APP" "$LINKS_FILE" 2>/dev/null; then
-        LINKED_SERVICES+=("$SERVICE_NAME")
-      fi
-    done
+  # Check global DNS configuration
+  local PROVIDER="None"
+  local CONFIG_STATUS="Not configured"
+  
+  if [[ -f "$PROVIDER_FILE" ]]; then
+    PROVIDER=$(cat "$PROVIDER_FILE" 2>/dev/null || echo "None")
+    if [[ -n "$PROVIDER" ]] && [[ "$PROVIDER" != "None" ]]; then
+      CONFIG_STATUS="Configured"
+    fi
   fi
   
-  # Display linked services
-  if [[ ${#LINKED_SERVICES[@]} -eq 0 ]]; then
-    dokku_log_info1 "Linked DNS Services: None"
-    dokku_log_info1 "Link a service with: dokku $PLUGIN_COMMAND_PREFIX:link <service> $APP"
-  else
-    dokku_log_info1 "Linked DNS Services: ${LINKED_SERVICES[*]}"
-  fi
+  # Display global configuration
+  dokku_log_info1 "Global DNS Provider: $PROVIDER"
+  dokku_log_info1 "Configuration Status: $CONFIG_STATUS"
   
   echo
   dokku_log_info2 "Domain Analysis:"
-  dokku_log_info2 "$(printf "%-30s %-15s %-20s %s" "Domain" "Current IP" "Status" "Backend")"
-  dokku_log_info2 "$(printf "%-30s %-15s %-20s %s" "------" "----------" "------" "-------")"
+  dokku_log_info2 "$(printf "%-30s %-8s %-20s %-12s %s" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
+  dokku_log_info2 "$(printf "%-30s %-8s %-20s %-12s %s" "------" "---" "------" "--------" "-----------")"
+  
+  # Check global provider credentials
+  local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
+  local SYNC_STATUS="Not ready"
+  
+  if [[ "$PROVIDER" != "None" ]] && [[ -d "$CREDENTIALS_DIR" ]]; then
+    case "$PROVIDER" in
+      aws)
+        if [[ -f "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID" ]] || aws sts get-caller-identity >/dev/null 2>&1; then
+          SYNC_STATUS="Ready"
+        else
+          SYNC_STATUS="Missing auth"
+        fi
+        ;;
+      cloudflare)
+        if [[ -f "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN" ]]; then
+          SYNC_STATUS="Ready"
+        else
+          SYNC_STATUS="Missing auth"
+        fi
+        ;;
+      *)
+        SYNC_STATUS="Unknown provider"
+        ;;
+    esac
+  elif [[ "$PROVIDER" == "None" ]]; then
+    SYNC_STATUS="Not configured"
+  fi
+  
+  # Load provider functions if available
+  if [[ "$PROVIDER" != "None" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+    local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
+    if [[ -f "$PROVIDER_SCRIPT" ]]; then
+      source "$PROVIDER_SCRIPT"
+      if [[ "$PROVIDER" == "aws" ]]; then
+        dns_provider_aws_setup_env
+      fi
+    fi
+  fi
   
   # Analyze each domain
   echo "$APP_DOMAINS" | while IFS= read -r DOMAIN; do
@@ -72,69 +125,58 @@ dns_sync_report() {
     
     # Get current DNS resolution
     local CURRENT_IP
-    CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "No record")
+    CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")
     
-    # Find which service manages this domain and its backend
-    local MANAGING_SERVICE=""
-    local BACKEND=""
-    local SYNC_STATUS="Not synced"
-    
-    for SERVICE_NAME in "${LINKED_SERVICES[@]}"; do
-      SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE_NAME"
-      local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
-      
-      if [[ -f "$BACKEND_FILE" ]]; then
-        BACKEND=$(cat "$BACKEND_FILE" 2>/dev/null || echo "Unknown")
-        MANAGING_SERVICE="$SERVICE_NAME"
-        
-        # Check if backend credentials are configured
-        local CREDENTIALS_DIR="$SERVICE_ROOT/credentials"
-        if [[ -d "$CREDENTIALS_DIR" ]]; then
-          case "$BACKEND" in
-            aws)
-              if [[ -f "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID" ]] || aws sts get-caller-identity >/dev/null 2>&1; then
-                SYNC_STATUS="Ready"
-              else
-                SYNC_STATUS="Missing auth"
-              fi
-              ;;
-            cloudflare)
-              if [[ -f "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN" ]]; then
-                SYNC_STATUS="Ready"
-              else
-                SYNC_STATUS="Missing auth"
-              fi
-              ;;
-            *)
-              SYNC_STATUS="Unknown backend"
-              ;;
-          esac
-        else
-          SYNC_STATUS="Missing auth"
-        fi
-        break
+    # Determine DNS status emoji
+    local DNS_EMOJI="❌"
+    if [[ -n "$CURRENT_IP" ]]; then
+      if [[ "$CURRENT_IP" == "$SERVER_IP" ]]; then
+        DNS_EMOJI="✅"
+      else
+        DNS_EMOJI="⚠️"
       fi
-    done
+    fi
     
-    if [[ -z "$MANAGING_SERVICE" ]]; then
-      BACKEND="None"
-      SYNC_STATUS="Not managed"
+    # Try to get hosted zone if provider is AWS and ready
+    local HOSTED_ZONE="-"
+    if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+      if declare -f "dns_provider_aws_get_hosted_zone_id" >/dev/null 2>&1; then
+        local ZONE_ID
+        ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null || echo "")
+        if [[ -n "$ZONE_ID" ]]; then
+          # Get the zone name from AWS
+          local ZONE_NAME
+          ZONE_NAME=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'HostedZone.Name' --output text 2>/dev/null | sed 's/\.$//g' || echo "$ZONE_ID")
+          HOSTED_ZONE="$ZONE_NAME"
+        else
+          HOSTED_ZONE="Not found"
+        fi
+      fi
     fi
     
     # Format and display the row
-    printf "%-30s %-15s %-20s %s\n" "$DOMAIN" "$CURRENT_IP" "$SYNC_STATUS" "$BACKEND"
+    printf "%-30s %-8s %-20s %-12s %s\n" "$DOMAIN" "$DNS_EMOJI" "$SYNC_STATUS" "$PROVIDER" "$HOSTED_ZONE"
   done
   
   echo
+  dokku_log_info2 "DNS Status Legend:"
+  dokku_log_info1 "✅ Points to server IP ($SERVER_IP)"
+  dokku_log_info1 "⚠️  Points to different IP"
+  dokku_log_info1 "❌ No DNS record found"
+  
+  echo
   dokku_log_info2 "Actions available:"
-  if [[ ${#LINKED_SERVICES[@]} -eq 0 ]]; then
-    dokku_log_info1 "1. Configure DNS service: dokku $PLUGIN_COMMAND_PREFIX:configure <service> [aws|cloudflare]"
-    dokku_log_info1 "2. Configure auth: dokku $PLUGIN_COMMAND_PREFIX:backend-auth <service>"
-    dokku_log_info1 "3. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link <service> $APP"
+  if [[ "$PROVIDER" == "None" ]]; then
+    dokku_log_info1 "1. Configure DNS provider: dokku $PLUGIN_COMMAND_PREFIX:configure [aws|cloudflare]"
+    dokku_log_info1 "2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+    dokku_log_info1 "3. Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+  elif [[ "$SYNC_STATUS" == "Missing auth" ]]; then
+    dokku_log_info1 "Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+    dokku_log_info1 "Then sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+  elif [[ "$SYNC_STATUS" == "Ready" ]]; then
+    dokku_log_info1 "Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
   else
-    for SERVICE_NAME in "${LINKED_SERVICES[@]}"; do
-      dokku_log_info1 "Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE_NAME"
-    done
+    dokku_log_info1 "Fix configuration issues, then sync: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
   fi
 }
 
