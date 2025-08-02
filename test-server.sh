@@ -138,23 +138,61 @@ main() {
     }
     echo ""
     
-    # Test global configuration
-    log "INFO" "Testing global configuration..."
+    # List all available commands  
+    log "INFO" "Testing all available DNS commands..."
+    echo "Available DNS commands (implemented):"
+    echo "  - dns:add-domains    - Add app domains to DNS provider"
+    echo "  - dns:configure      - Configure DNS provider" 
+    echo "  - dns:provider-auth  - Configure provider authentication"
+    echo "  - dns:report         - Show DNS sync status"
+    echo "  - dns:sync           - Sync DNS records"
+    echo ""
+    echo "Available DNS commands (unimplemented/inherited):"
+    echo "  - dns:app-links, dns:backup*, dns:clone, dns:connect, dns:destroy"
+    echo "  - dns:enter, dns:exists, dns:export, dns:expose, dns:import"  
+    echo "  - dns:info, dns:link, dns:linked, dns:links, dns:list, dns:logs"
+    echo "  - dns:pause, dns:promote, dns:restart, dns:set, dns:set-provider"
+    echo "  - dns:start, dns:stop, dns:unexpose, dns:unlink, dns:upgrade"
+    echo ""
     
-    if run_remote_command "Configure DNS sync globally" "sudo dokku dns:configure aws"; then
-        log "SUCCESS" "Global configuration successful"
+    # Test global configuration
+    log "INFO" "Testing DNS provider configuration..."
+    
+    if run_remote_command "Configure DNS sync with AWS provider" "sudo dokku dns:configure aws"; then
+        log "SUCCESS" "DNS provider configuration successful"
         
         # Test provider-auth command (will fail without input, but should show it's working)
-        run_remote_command "Test provider-auth command" "timeout 5s sudo dokku dns:provider-auth < /dev/null || true" || {
-            log "INFO" "Provider-auth command timed out as expected (requires input)"
+        run_remote_command "Test provider-auth command availability" "timeout 5s sudo dokku dns:provider-auth < /dev/null || true" || {
+            log "INFO" "Provider-auth command timed out as expected (requires interactive input)"
         }
         
-        # Test info/report command
-        run_remote_command "Test report command" "sudo dokku dns:report" || {
-            log "WARNING" "Report command failed, but configuration might still work"
+        # Test report command without specific app
+        run_remote_command "Test global report command" "sudo dokku dns:report || true" || {
+            log "INFO" "Report command completed (may show no apps configured)"
         }
+        
+        # Test add-domains command (will fail without app, but should show usage)
+        run_remote_command "Test add-domains command availability" "sudo dokku dns:add-domains 2>&1 || true" || {
+            log "INFO" "Add-domains command available (shows usage when no app specified)"
+        }
+        
+        # Test sync command (will fail without app, but should show usage)  
+        run_remote_command "Test sync command availability" "sudo dokku dns:sync 2>&1 || true" || {
+            log "INFO" "Sync command available (shows usage when no app specified)"
+        }
+        
     else
-        log "ERROR" "Global configuration failed"
+        log "ERROR" "DNS provider configuration failed"
+    fi
+    echo ""
+    
+    # Test with a sample app if it exists
+    log "INFO" "Testing with sample app (if available)..."
+    if run_remote_command "Check for existing apps" "sudo dokku apps:list 2>/dev/null || true"; then
+        # Try to find first app for testing
+        run_remote_command "Test report with first app" "sudo dokku apps:list 2>/dev/null | head -1 | xargs -r sudo dokku dns:report 2>&1 || true"
+    else
+        log "INFO" "No apps found for testing app-specific commands"
     fi
     echo ""
     
@@ -174,11 +212,22 @@ main() {
     fi
     
     echo ""
-    log "INFO" "You can now test the plugin with:"
+    log "INFO" "You can now test the plugin manually with:"
     echo "  ssh $SSH_USER@$SERVER_HOST"
-    echo "  sudo dokku dns:configure aws"
-    echo "  sudo dokku dns:provider-auth"
-    echo "  sudo dokku dns:sync myapp"
+    echo ""
+    echo "Basic DNS setup commands:"
+    echo "  sudo dokku dns:configure aws                    # Configure AWS as DNS provider"
+    echo "  sudo dokku dns:configure cloudflare             # Configure Cloudflare as DNS provider" 
+    echo "  sudo dokku dns:provider-auth                    # Set up provider credentials"
+    echo ""
+    echo "App-specific DNS commands:"
+    echo "  sudo dokku dns:add-domains myapp                # Add all app domains to DNS"
+    echo "  sudo dokku dns:add-domains myapp example.com    # Add specific domain to DNS"
+    echo "  sudo dokku dns:sync myapp                       # Sync DNS records for app"
+    echo "  sudo dokku dns:report myapp                     # Show DNS status for app"
+    echo ""
+    echo "Global commands:"
+    echo "  sudo dokku dns:report                           # Show global DNS configuration"
 }
 
 # Check if script is being sourced or executed

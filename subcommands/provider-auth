@@ -6,11 +6,11 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-provider-auth-cmd() {
-  #E configure provider authentication credentials
+  #E verify provider authentication credentials
   #E dokku $PLUGIN_COMMAND_PREFIX:provider-auth
-  #E for AWS: prompts for AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
-  #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN
-  declare desc="configure provider authentication for $PLUGIN_SERVICE"
+  #E for AWS: checks if AWS CLI is configured (use 'aws configure' to set up)
+  #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN and stores securely
+  declare desc="verify provider authentication for $PLUGIN_SERVICE"
   local cmd="$PLUGIN_COMMAND_PREFIX:provider-auth" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
   
@@ -41,71 +41,75 @@ service-provider-auth-cmd() {
   
   case "$PROVIDER" in
     aws)
-      dokku_log_info2 "Configuring AWS Route53 credentials"
+      dokku_log_info2 "Verifying AWS Route53 access"
       
-      # Check if AWS CLI is already configured system-wide or per-user
-      local USE_EXISTING=false
-      if command -v aws >/dev/null 2>&1; then
-        if aws sts get-caller-identity >/dev/null 2>&1; then
-          dokku_log_info1 "Existing AWS CLI configuration detected"
-          echo -n "Use existing AWS CLI configuration? [Y/n]: "
-          read -r RESPONSE
-          if [[ -z "$RESPONSE" ]] || [[ "$RESPONSE" =~ ^[Yy]$ ]]; then
-            USE_EXISTING=true
-          fi
-        fi
+      # Check if AWS CLI is installed
+      if ! command -v aws >/dev/null 2>&1; then
+        dokku_log_fail "AWS CLI is not installed. Please install it first:
+  
+  # Ubuntu/Debian:
+  sudo apt update && sudo apt install awscli
+  
+  # macOS:
+  brew install awscli
+  
+  # Or install via pip:
+  pip install awscli"
       fi
       
-      if [[ "$USE_EXISTING" == "true" ]]; then
-        # Get current AWS configuration
-        local AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
-        AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id 2>/dev/null || echo "")
-        AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key 2>/dev/null || echo "")
-        AWS_DEFAULT_REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
-        
-        if [[ -n "$AWS_ACCESS_KEY_ID" ]] && [[ -n "$AWS_SECRET_ACCESS_KEY" ]]; then
-          echo "$AWS_ACCESS_KEY_ID" > "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID"
-          echo "$AWS_SECRET_ACCESS_KEY" > "$CREDENTIALS_DIR/AWS_SECRET_ACCESS_KEY"
-          echo "$AWS_DEFAULT_REGION" > "$CREDENTIALS_DIR/AWS_DEFAULT_REGION"
-          dokku_log_info1 "Using existing AWS CLI credentials"
-        else
-          dokku_log_warn "Could not retrieve existing AWS credentials, falling back to manual entry"
-          USE_EXISTING=false
-        fi
+      # Check if AWS CLI is configured
+      dokku_log_info1 "Checking AWS CLI configuration..."
+      if ! aws sts get-caller-identity >/dev/null 2>&1; then
+        dokku_log_fail "AWS CLI is not configured or credentials are invalid.
+  
+Please configure AWS CLI first using one of these methods:
+
+1. Run: aws configure
+   Then enter your AWS Access Key ID, Secret Key, and default region.
+
+2. Use environment variables:
+   export AWS_ACCESS_KEY_ID=your_key_id
+   export AWS_SECRET_ACCESS_KEY=your_secret_key
+   export AWS_DEFAULT_REGION=us-east-1
+
+3. Use IAM roles (if running on EC2)
+
+4. Use AWS credential files (~/.aws/credentials)
+
+For more info: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html"
       fi
       
-      if [[ "$USE_EXISTING" == "false" ]]; then
-        # Manual credential entry
-        echo -n "AWS Access Key ID: "
-        read -r AWS_ACCESS_KEY_ID
-        [[ -z "$AWS_ACCESS_KEY_ID" ]] && dokku_log_fail "AWS Access Key ID is required"
-        
-        echo -n "AWS Secret Access Key: "
-        read -rs AWS_SECRET_ACCESS_KEY
-        echo
-        [[ -z "$AWS_SECRET_ACCESS_KEY" ]] && dokku_log_fail "AWS Secret Access Key is required"
-        
-        echo -n "AWS Default Region [us-east-1]: "
-        read -r AWS_DEFAULT_REGION
-        AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
-        
-        echo "$AWS_ACCESS_KEY_ID" > "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID"
-        echo "$AWS_SECRET_ACCESS_KEY" > "$CREDENTIALS_DIR/AWS_SECRET_ACCESS_KEY"
-        echo "$AWS_DEFAULT_REGION" > "$CREDENTIALS_DIR/AWS_DEFAULT_REGION"
-      fi
+      # Get AWS identity information
+      local AWS_IDENTITY
+      AWS_IDENTITY=$(aws sts get-caller-identity 2>/dev/null)
+      local AWS_USER_ID=$(echo "$AWS_IDENTITY" | jq -r '.UserId // .Arn' 2>/dev/null || echo "unknown")
+      local AWS_ACCOUNT=$(echo "$AWS_IDENTITY" | jq -r '.Account' 2>/dev/null || echo "unknown")
+      local AWS_REGION=$(aws configure get region 2>/dev/null || echo "not-set")
       
-      chmod 600 "$CREDENTIALS_DIR"/*
+      dokku_log_info2 "✓ AWS CLI configured successfully"
+      dokku_log_info1 "AWS Account: $AWS_ACCOUNT"
+      dokku_log_info1 "AWS User/Role: $AWS_USER_ID"
+      dokku_log_info1 "AWS Region: $AWS_REGION"
       
-      # Validate credentials by testing AWS API access
-      dokku_log_info1 "Validating AWS credentials..."
-      if dns_provider_aws_validate_credentials && dns_provider_aws_setup_env && aws sts get-caller-identity >/dev/null 2>&1; then
-        dokku_log_info2 "✓ AWS credentials validated successfully"
+      # Test Route53 permissions
+      dokku_log_info1 "Testing Route53 permissions..."
+      if aws route53 list-hosted-zones >/dev/null 2>&1; then
+        dokku_log_info2 "✓ Route53 access confirmed"
         
         # Show available hosted zones
         dokku_log_info1 "Available hosted zones:"
-        aws route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table 2>/dev/null || dokku_log_warn "Could not list hosted zones"
+        aws route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table 2>/dev/null || {
+          dokku_log_info1 "No hosted zones found or unable to format output"
+          aws route53 list-hosted-zones --query 'HostedZones[].Name' --output text 2>/dev/null || true
+        }
       else
-        dokku_log_fail "✗ AWS credential validation failed. Please check your credentials."
+        dokku_log_fail "✗ Route53 access failed. Please ensure your AWS credentials have the following permissions:
+  
+  - route53:ListHostedZones
+  - route53:ListResourceRecordSets  
+  - route53:ChangeResourceRecordSets
+  
+You can attach the AWS managed policy 'AmazonRoute53FullAccess' or create a custom policy."
       fi
       ;;
       
@@ -139,8 +143,10 @@ service-provider-auth-cmd() {
       ;;
   esac
   
-  dokku_log_info2 "Provider authentication configured successfully"
-  dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+  dokku_log_info2 "Provider authentication verified successfully"
+  dokku_log_info1 "Next steps:"
+  dokku_log_info1 "  1. Add domains to an app: dokku $PLUGIN_COMMAND_PREFIX:add-domains <app>"
+  dokku_log_info1 "  2. Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
 }
 
 service-provider-auth-cmd "$@"

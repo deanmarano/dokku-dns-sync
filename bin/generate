@@ -179,7 +179,7 @@ def usage_section(
 
 
 def usage_intro(service, variable, alias, image, scheme, ports, options, unimplemented):
-    commands = ["add-domains", "configure", "info", "list", "logs", "link", "unlink", "set"]
+    commands = ["add-domains", "configure", "provider-auth", "report", "sync"]
     content = ["### Basic Usage"]
 
     return fetch_commands_content(

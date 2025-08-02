@@ -19,7 +19,7 @@ sudo dokku plugin:install https://github.com/dokku/dokku-dns.git --name dns
 ```
 dns:add-domains <app>    # add app domains to dns provider for management
 dns:configure <provider> # configure or change the global dns provider
-dns:provider-auth        # configure provider authentication for dns
+dns:provider-auth        # verify provider authentication for dns
 dns:report <app>         # display DNS sync status and domain information for an app
 dns:sync <app>           # synchronize DNS records for app
 ```
@@ -60,6 +60,158 @@ dokku dns:configure [aws|cloudflare]
 ```
 
 This sets up or changes the `DNS` provider for all `DNS` synchronization. If no provider is specified, defaults to `$DNS_SYNC_DEFAULT_PROVIDER` if provider is already configured, this will change to the new provider after configuration, use other commands to: - configure credentials: dokku dns:provider-auth - sync an app: dokku dns:sync myapp:
+
+### verify provider authentication for dns
+
+```shell
+# usage
+dokku dns:provider-auth
+```
+
+Verify provider authentication credentials:
+
+```shell
+dokku dns:provider-auth
+```
+
+For `AWS`:` checks if `AWS` `CLI` is configured (use `aws configure` to set up) for Cloudflare: prompts for `CLOUDFLARE_API_TOKEN` and stores securely:
+
+## AWS Setup
+
+For AWS Route53, you need to configure the AWS CLI on your Dokku server. The DNS plugin will use your existing AWS CLI configuration instead of storing credentials.
+
+**Prerequisites:**
+1. Install AWS CLI on your Dokku server
+2. Configure AWS credentials with proper Route53 permissions
+
+### Install AWS CLI
+
+```shell
+# Ubuntu/Debian
+sudo apt update && sudo apt install awscli
+
+# Amazon Linux/CentOS
+sudo yum install awscli
+
+# Or install latest version via pip
+pip install awscli
+```
+
+### Configure AWS Credentials
+
+Choose one of these methods:
+
+#### Option 1: Interactive Configuration (Recommended)
+```shell
+aws configure
+```
+This will prompt you for:
+- AWS Access Key ID
+- AWS Secret Access Key  
+- Default region (e.g., us-east-1)
+- Output format (json is recommended)
+
+#### Option 2: Environment Variables
+```shell
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+export AWS_DEFAULT_REGION="us-east-1"
+```
+
+#### Option 3: IAM Roles (EC2 only)
+If your Dokku server runs on EC2, you can attach an IAM role with Route53 permissions instead of using access keys.
+
+### Required AWS Permissions
+
+Your AWS credentials need these Route53 permissions:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "route53:ListHostedZones",
+                "route53:ListResourceRecordSets",
+                "route53:ChangeResourceRecordSets"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+You can either:
+- Attach the AWS managed policy **AmazonRoute53FullAccess**
+- Or create a custom policy with the permissions above
+
+### Verify Setup
+
+After configuring AWS CLI, run:
+
+```shell
+dokku dns:provider-auth
+```
+
+This will:
+- Check if AWS CLI is installed and configured
+- Verify your credentials work
+- Test Route53 permissions
+- List your hosted zones
+
+## Cloudflare Setup
+
+For Cloudflare, the plugin will prompt you for an API token during `dokku dns:provider-auth`.
+
+### Create Cloudflare API Token
+
+1. Go to https://dash.cloudflare.com/profile/api-tokens
+2. Click **Create Token**
+3. Use the **Custom token** template
+4. Configure:
+   - **Permissions**: Zone - Zone:Read, Zone - DNS:Edit
+   - **Zone Resources**: Include - All zones (or specific zones)
+5. Click **Continue to summary** and **Create Token**
+6. Copy the token (you won't see it again)
+
+### Configure Token
+
+Run the provider auth command and enter your token when prompted:
+
+```shell
+dokku dns:provider-auth
+```
+
+### display DNS sync status and domain information for an app
+
+```shell
+# usage
+dokku dns:report <app>
+```
+
+Display `DNS` sync status and domain information for an app:
+
+```shell
+dokku dns:report myapp
+```
+
+Shows server `IP,` all domains for the app, `DNS` status with emojis, and hosted zones `DNS` status: ✅ correct, ⚠️ wrong `IP,` ❌ no record:
+
+### synchronize DNS records for app
+
+```shell
+# usage
+dokku dns:sync <app>
+```
+
+Synchronize `DNS` records for an app using the configured provider:
+
+```shell
+dokku dns:sync nextcloud
+```
+
+This will discover all domains from the app and update `DNS` records to point to the current server's `IP` address using the configured provider:
 
 ### Disabling `docker image pull` calls
 

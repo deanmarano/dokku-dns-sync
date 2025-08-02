@@ -2,49 +2,31 @@
 # AWS Route53 DNS Provider for dokku-dns
 
 dns_provider_aws_validate_credentials() {
-  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
-  local AWS_ACCESS_KEY_ID_FILE="$GLOBAL_CONFIG_ROOT/credentials/AWS_ACCESS_KEY_ID"
-  local AWS_SECRET_ACCESS_KEY_FILE="$GLOBAL_CONFIG_ROOT/credentials/AWS_SECRET_ACCESS_KEY"
-  local AWS_DEFAULT_REGION_FILE="$GLOBAL_CONFIG_ROOT/credentials/AWS_DEFAULT_REGION"
-
   # Check if aws-cli is available
   if ! command -v aws >/dev/null 2>&1; then
-    dokku_log_fail "aws-cli is not installed. Please install aws-cli to use AWS Route53 provider."
+    dokku_log_fail "AWS CLI is not installed. Please install aws-cli to use AWS Route53 provider.
+    
+Run: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
   fi
 
-  # First, check if we have service-specific credentials
-  if [[ -f "$AWS_ACCESS_KEY_ID_FILE" ]] && [[ -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && [[ -f "$AWS_DEFAULT_REGION_FILE" ]]; then
-    return 0
-  fi
-  
-  # If no service-specific credentials, check if AWS CLI is configured system-wide
-  if aws sts get-caller-identity >/dev/null 2>&1; then
-    # AWS CLI is configured and working, we can use it
-    return 0
+  # Check if AWS CLI is configured and working
+  if ! aws sts get-caller-identity >/dev/null 2>&1; then
+    dokku_log_fail "AWS CLI is not configured or credentials are invalid.
+    
+Run: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
   fi
 
-  # No valid credentials found
-  [[ ! -f "$AWS_ACCESS_KEY_ID_FILE" ]] && dokku_log_fail "Missing AWS_ACCESS_KEY_ID. Run: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
-  [[ ! -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && dokku_log_fail "Missing AWS_SECRET_ACCESS_KEY. Run: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
-  [[ ! -f "$AWS_DEFAULT_REGION_FILE" ]] && dokku_log_fail "Missing AWS_DEFAULT_REGION. Run: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
-
-  return 1
+  return 0
 }
 
 dns_provider_aws_setup_env() {
-  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
-  local AWS_ACCESS_KEY_ID_FILE="$GLOBAL_CONFIG_ROOT/credentials/AWS_ACCESS_KEY_ID"
-  local AWS_SECRET_ACCESS_KEY_FILE="$GLOBAL_CONFIG_ROOT/credentials/AWS_SECRET_ACCESS_KEY"
-  local AWS_DEFAULT_REGION_FILE="$GLOBAL_CONFIG_ROOT/credentials/AWS_DEFAULT_REGION"
-  
-  # Only set environment variables if we have service-specific credentials
-  # Otherwise, rely on existing AWS CLI configuration
-  if [[ -f "$AWS_ACCESS_KEY_ID_FILE" ]] && [[ -f "$AWS_SECRET_ACCESS_KEY_FILE" ]] && [[ -f "$AWS_DEFAULT_REGION_FILE" ]]; then
-    export AWS_ACCESS_KEY_ID="$(cat "$AWS_ACCESS_KEY_ID_FILE")"
-    export AWS_SECRET_ACCESS_KEY="$(cat "$AWS_SECRET_ACCESS_KEY_FILE")"
-    export AWS_DEFAULT_REGION="$(cat "$AWS_DEFAULT_REGION_FILE")"
-  fi
-  # If files don't exist, AWS CLI will use its default configuration
+  # Rely entirely on existing AWS CLI configuration
+  # AWS CLI will use its default configuration from:
+  # - ~/.aws/credentials and ~/.aws/config files
+  # - Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION)
+  # - IAM roles (if running on EC2)
+  # - AWS SSO
+  true  # No-op function, kept for compatibility
 }
 
 dns_provider_aws_get_hosted_zone_id() {
