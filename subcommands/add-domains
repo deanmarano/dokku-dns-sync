@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-add-domains-cmd() {
+  #E add app domains to DNS provider for management
+  #E dokku $PLUGIN_COMMAND_PREFIX:add-domains nextcloud
+  #E dokku $PLUGIN_COMMAND_PREFIX:add-domains nextcloud example.com api.example.com
+  #E by default, adds all domains configured for the app
+  #E optionally specify specific domains to add to DNS management
+  #E this registers domains with the DNS provider but doesn't sync records yet
+  #E use 'dokku $PLUGIN_COMMAND_PREFIX:sync' to update DNS records
+  #A app, app to add domains for
+  #A domains, specific domains to add (optional, defaults to all app domains)
+  declare desc="add app domains to $PLUGIN_SERVICE provider for management"
+  local cmd="$PLUGIN_COMMAND_PREFIX:add-domains" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare APP="$1"
+  shift 1
+  declare DOMAINS=("$@")
+
+  [[ -z "$APP" ]] && dokku_log_fail "Please specify an app name"
+  verify_app_name "$APP"
+  
+  # Get all app domains if none specified
+  if [[ ${#DOMAINS[@]} -eq 0 ]]; then
+    mapfile -t DOMAINS < <(get_app_domains "$APP")
+    if [[ ${#DOMAINS[@]} -eq 0 ]]; then
+      dokku_log_fail "No domains found for app '$APP'. Add domains first with: dokku domains:add $APP <domain>"
+    fi
+    dokku_log_info1 "Adding all domains for app '$APP': ${DOMAINS[*]}"
+  else
+    dokku_log_info1 "Adding specified domains for app '$APP': ${DOMAINS[*]}"
+  fi
+  
+  dns_add_app_domains "$APP" "${DOMAINS[@]}"
+}
+
+service-add-domains-cmd "$@"

@@ -27,3 +27,7 @@ export PLUGIN_BUSYBOX_IMAGE=${PLUGIN_BUSYBOX_IMAGE:=busybox:1.37.0-uclibc}
 # DNS sync specific configuration
 export DNS_SYNC_CONFIG_OPTIONS=${DNS_SYNC_CONFIG_OPTIONS:=""}
 export DNS_SYNC_DEFAULT_PROVIDER=${DNS_SYNC_DEFAULT_PROVIDER:="aws"}
+
+# Plugin configuration for documentation generation
+export PLUGIN_SCHEME="dns"
+export PLUGIN_DATASTORE_PORTS=("53")

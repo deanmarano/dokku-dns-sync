@@ -1,1 +1,1 @@
-FROM postgres:17.5
+FROM busybox:1.37.0-uclibc

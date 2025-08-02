@@ -412,3 +412,66 @@ dns_sync_app() {
     dokku_log_fail "Provider $PROVIDER does not support app syncing"
   fi
 }
+
+get_app_domains() {
+  local APP="$1"
+  local GLOBAL_VHOST_FILE="$DOKKU_ROOT/VHOST"
+  local APP_VHOST_FILE="$DOKKU_ROOT/$APP/VHOST"
+  
+  # Check app-specific VHOST file first
+  if [[ -f "$APP_VHOST_FILE" ]]; then
+    cat "$APP_VHOST_FILE" 2>/dev/null | grep -v '^$' || true
+  else
+    # Fall back to domains:report command
+    dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null | cut -d: -f2- | tr ' ' '\n' | grep -v '^$' || true
+  fi
+}
+
+dns_add_app_domains() {
+  local APP="$1"
+  shift 1
+  local DOMAINS=("$@")
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "DNS sync not configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  fi
+  
+  local PROVIDER
+  PROVIDER="$(cat "$PROVIDER_FILE")"
+  
+  if [[ -z "$PROVIDER" ]]; then
+    dokku_log_fail "Provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  fi
+  
+  # Load the provider
+  local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
+  if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
+    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
+  fi
+  
+  source "$PROVIDER_SCRIPT"
+  
+  # Store domains for this app
+  local APP_DOMAINS_DIR="$GLOBAL_CONFIG_ROOT/apps/$APP"
+  mkdir -p "$APP_DOMAINS_DIR"
+  local DOMAINS_FILE="$APP_DOMAINS_DIR/DOMAINS"
+  
+  # Add each domain to the file if not already present
+  for domain in "${DOMAINS[@]}"; do
+    if ! grep -q "^$domain$" "$DOMAINS_FILE" 2>/dev/null; then
+      echo "$domain" >> "$DOMAINS_FILE"
+      dokku_log_info2 "Added domain '$domain' to app '$APP'"
+    else
+      dokku_log_info2 "Domain '$domain' already managed for app '$APP'"
+    fi
+  done
+  
+  # Call provider-specific add domains function if available
+  if declare -f "dns_provider_${PROVIDER}_add_domains" >/dev/null; then
+    "dns_provider_${PROVIDER}_add_domains" "" "$APP" "${DOMAINS[@]}"
+  else
+    dokku_log_info1 "Domains registered locally. Provider '$PROVIDER' will manage them during sync."
+  fi
+}
