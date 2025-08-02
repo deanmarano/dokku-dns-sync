@@ -179,6 +179,112 @@ dns_provider_aws_list_records() {
     --output table 2>/dev/null
 }
 
+dns_provider_aws_discover_existing_domains() {
+  # Discover existing A records for domains that are registered with Dokku apps
+  
+  local HOSTED_ZONES
+  HOSTED_ZONES=$(aws route53 list-hosted-zones --query 'HostedZones[].Id' --output text 2>/dev/null | sed 's|/hostedzone/||g')
+  
+  if [[ -z "$HOSTED_ZONES" ]]; then
+    dokku_log_info1 "No hosted zones found in Route53"
+    return 0
+  fi
+  
+  # Get all domains from all Dokku apps
+  local ALL_DOKKU_DOMAINS=""
+  local APPS_LIST
+  APPS_LIST=$(dokku apps:list 2>/dev/null | grep -v "====>" || echo "")
+  
+  if [[ -z "$APPS_LIST" ]]; then
+    dokku_log_info1 "No Dokku apps found - cannot filter DNS records"
+    return 0
+  fi
+  
+  # Collect all domains from all apps
+  while IFS= read -r APP; do
+    [[ -z "$APP" ]] && continue
+    local APP_DOMAINS
+    APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
+    if [[ -n "$APP_DOMAINS" ]]; then
+      ALL_DOKKU_DOMAINS="$ALL_DOKKU_DOMAINS
+$APP_DOMAINS"
+    fi
+  done <<< "$APPS_LIST"
+  
+  # Also include global domains
+  local GLOBAL_DOMAINS
+  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
+  if [[ -n "$GLOBAL_DOMAINS" ]]; then
+    ALL_DOKKU_DOMAINS="$ALL_DOKKU_DOMAINS
+$GLOBAL_DOMAINS"
+  fi
+  
+  # Remove empty lines and duplicates
+  ALL_DOKKU_DOMAINS=$(echo "$ALL_DOKKU_DOMAINS" | grep -v "^$" | sort -u)
+  
+  if [[ -z "$ALL_DOKKU_DOMAINS" ]]; then
+    dokku_log_info1 "No domains configured in any Dokku apps"
+    return 0
+  fi
+  
+  dokku_log_info2 "Discovering DNS records for Dokku-registered domains..."
+  
+  local ZONE_COUNT=0
+  local RECORD_COUNT=0
+  local MATCHED_COUNT=0
+  
+  for ZONE_ID in $HOSTED_ZONES; do
+    ((ZONE_COUNT++))
+    
+    # Get zone name for display
+    local ZONE_NAME
+    ZONE_NAME=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'HostedZone.Name' --output text 2>/dev/null | sed 's/\.$//')
+    
+    # List all A records in this zone (excluding NS, SOA, etc.)
+    local A_RECORDS
+    A_RECORDS=$(aws route53 list-resource-record-sets \
+      --hosted-zone-id "$ZONE_ID" \
+      --query 'ResourceRecordSets[?Type==`A`].{Name:Name,Value:ResourceRecords[0].Value}' \
+      --output text 2>/dev/null)
+    
+    local ZONE_MATCHED=false
+    
+    if [[ -n "$A_RECORDS" ]]; then
+      while IFS=$'\t' read -r DOMAIN IP; do
+        # Remove trailing dot from domain name
+        DOMAIN=$(echo "$DOMAIN" | sed 's/\.$//')
+        if [[ -n "$DOMAIN" ]] && [[ -n "$IP" ]]; then
+          ((RECORD_COUNT++))
+          
+          # Check if this domain is registered with Dokku
+          if echo "$ALL_DOKKU_DOMAINS" | grep -q "^${DOMAIN}$"; then
+            if [[ "$ZONE_MATCHED" == false ]]; then
+              dokku_log_info1 "Zone: $ZONE_NAME ($ZONE_ID)"
+              ZONE_MATCHED=true
+            fi
+            echo "  ✓ $DOMAIN → $IP"
+            ((MATCHED_COUNT++))
+          fi
+        fi
+      done <<< "$A_RECORDS"
+    fi
+    
+    if [[ "$ZONE_MATCHED" == true ]]; then
+      echo
+    fi
+  done
+  
+  if [[ "$MATCHED_COUNT" -eq 0 ]]; then
+    dokku_log_info1 "No DNS records found for Dokku-registered domains"
+    dokku_log_info1 "Dokku domains that could be synced:"
+    echo "$ALL_DOKKU_DOMAINS" | while IFS= read -r DOMAIN; do
+      echo "  • $DOMAIN"
+    done
+  else
+    dokku_log_info2 "Discovery complete: Found $MATCHED_COUNT Dokku-registered domains out of $RECORD_COUNT total A records across $ZONE_COUNT hosted zones"
+  fi
+}
+
 dns_provider_aws_sync_app() {
   local SERVICE="$1"  # Not used in global mode, kept for compatibility
   local APP="$2"

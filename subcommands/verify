@@ -6,11 +6,11 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-verify-cmd() {
-  #E verify DNS provider setup and connectivity
+  #E verify DNS provider setup and connectivity, discover existing DNS records
   #E dokku $PLUGIN_COMMAND_PREFIX:verify
-  #E for AWS: checks if AWS CLI is configured and tests Route53 access
+  #E for AWS: checks if AWS CLI is configured, tests Route53 access, shows existing DNS records for Dokku domains
   #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN if not set, then validates access
-  declare desc="verify DNS provider setup and connectivity"
+  declare desc="verify DNS provider setup and connectivity, discover existing DNS records"
   local cmd="$PLUGIN_COMMAND_PREFIX:verify" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
   
@@ -102,6 +102,11 @@ For more info: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-qu
           dokku_log_info1 "No hosted zones found or unable to format output"
           aws route53 list-hosted-zones --query 'HostedZones[].Name' --output text 2>/dev/null || true
         }
+        
+        echo
+        # Show existing DNS records
+        dokku_log_info1 "Existing DNS records:"
+        dns_provider_aws_discover_existing_domains
       else
         dokku_log_fail "✗ Route53 access failed. Please ensure your AWS credentials have the following permissions:
   
@@ -143,10 +148,11 @@ You can attach the AWS managed policy 'AmazonRoute53FullAccess' or create a cust
       ;;
   esac
   
-  dokku_log_info2 "DNS provider verification completed successfully"
+  dokku_log_info2 "DNS provider verification and discovery completed successfully"
   dokku_log_info1 "Ready to use! Next steps:"
   dokku_log_info1 "  1. Add domains to an app: dokku $PLUGIN_COMMAND_PREFIX:add <app>"
   dokku_log_info1 "  2. Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+  dokku_log_info1 "  3. Check sync status: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
 }
 
 service-verify-cmd "$@"

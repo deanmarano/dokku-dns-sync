@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Remote server test script for dokku-dns-sync plugin
-# Usage: ./test-server.sh [server-hostname] [ssh-user]
+# Remote server test script for dokku-dns-sync plugin (Single SSH Session)
+# Usage: ./test-server.sh [server-hostname] [ssh-user] [test-app]
 
 SERVER_HOST="${1:-your-server.com}"
 SSH_USER="${2:-root}"
+TEST_APP="${3:-nextcloud}"
 PLUGIN_NAME="dns"
 PLUGIN_REPO="https://github.com/deanmarano/dokku-dns.git"
 LOG_FILE="test-server-$(date +%Y%m%d-%H%M%S).log"
@@ -36,82 +37,290 @@ log() {
         "ERROR")
             echo -e "${RED}[ERROR]${NC} $message" | tee -a "$LOG_FILE"
             ;;
-        "COMMAND")
-            echo -e "${YELLOW}[COMMAND]${NC} $message" | tee -a "$LOG_FILE"
-            ;;
     esac
 }
 
-run_remote_command() {
-    local description="$1"
-    local command="$2"
+generate_remote_script() {
+    local script_file="/tmp/dokku-dns-test-script.sh"
     
-    log "COMMAND" "Running: $description"
-    log "COMMAND" "SSH Command: $command"
-    
-    echo "----------------------------------------" >> "$LOG_FILE"
-    echo "Command: $description" >> "$LOG_FILE"
-    echo "SSH Command: $command" >> "$LOG_FILE"
-    echo "Output:" >> "$LOG_FILE"
-    
-    # Always use interactive SSH with terminal for password prompts
-    if ssh -t "$SSH_USER@$SERVER_HOST" "$command" 2>&1 | tee -a "$LOG_FILE"; then
-        log "SUCCESS" "$description completed successfully"
-        echo "Status: SUCCESS" >> "$LOG_FILE"
-    else
-        local exit_code=$?
-        log "ERROR" "$description failed with exit code $exit_code"
-        echo "Status: FAILED (exit code: $exit_code)" >> "$LOG_FILE"
-        return $exit_code
-    fi
-    
-    echo "----------------------------------------" >> "$LOG_FILE"
-    echo "" >> "$LOG_FILE"
+    cat > "$script_file" << 'REMOTE_SCRIPT_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Function to log with timestamps
+log_remote() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1: $2"
 }
 
-cleanup_aws_credentials() {
-    log "INFO" "Restoring original AWS configuration..."
-    
-    if [[ -f "/tmp/aws_credentials_backup" ]]; then
-        run_remote_command "Restore original AWS credentials" "
-            if [[ -f /tmp/aws_credentials_backup ]]; then
-                mkdir -p ~/.aws
-                cp /tmp/aws_credentials_backup ~/.aws/credentials
-            fi
-        " || log "WARNING" "Failed to restore AWS credentials"
+# Check current AWS state
+log_remote "INFO" "=== CHECKING CURRENT AWS CONFIGURATION ==="
+echo 'Current AWS CLI state:'
+if command -v aws >/dev/null 2>&1; then
+    echo '✓ AWS CLI is installed'
+    if aws sts get-caller-identity 2>/dev/null; then
+        echo '✓ AWS CLI is configured and authenticated'
     else
-        run_remote_command "Remove test AWS credentials" "rm -f ~/.aws/credentials && sudo rm -f /root/.aws/credentials" || log "WARNING" "Failed to remove test credentials"
+        echo '⚠ AWS CLI is installed but not configured'
     fi
-    
-    if [[ -f "/tmp/aws_config_backup" ]]; then
-        run_remote_command "Restore original AWS config" "
-            if [[ -f /tmp/aws_config_backup ]]; then
-                mkdir -p ~/.aws
-                cp /tmp/aws_config_backup ~/.aws/config
-            fi
-        " || log "WARNING" "Failed to restore AWS config"
-    else
-        run_remote_command "Remove test AWS config" "rm -f ~/.aws/config && sudo rm -f /root/.aws/config" || log "WARNING" "Failed to remove test config"
-    fi
-    
-    # Clean up backup files
-    run_remote_command "Clean up backup files" "rm -f /tmp/aws_credentials_backup /tmp/aws_config_backup" || true
-    
-    log "SUCCESS" "AWS configuration restored to original state"
-}
+else
+    echo '- AWS CLI is not installed'
+fi
 
-# Set up trap to ensure cleanup runs even if script fails
-trap cleanup_aws_credentials EXIT
+# Backup existing AWS configuration
+log_remote "INFO" "=== BACKING UP EXISTING AWS CONFIGURATION ==="
+if [[ -f ~/.aws/credentials ]]; then
+    cp ~/.aws/credentials /tmp/aws_credentials_backup
+    echo 'Backed up existing AWS credentials'
+else
+    echo 'No existing AWS credentials to backup'
+fi
+if [[ -f ~/.aws/config ]]; then
+    cp ~/.aws/config /tmp/aws_config_backup
+    echo 'Backed up existing AWS config'
+else
+    echo 'No existing AWS config to backup'
+fi
+
+# Check Dokku version
+log_remote "INFO" "=== CHECKING DOKKU ==="
+sudo dokku version
+
+# List current plugins
+log_remote "INFO" "=== CURRENT PLUGIN STATUS ==="
+sudo dokku plugin:list
+
+# Check if dns plugin is installed and uninstall if needed
+log_remote "INFO" "=== CHECKING DNS PLUGIN ==="
+DNS_PLUGIN_CHECK=$(sudo dokku plugin:list 2>/dev/null | grep dns || echo "not-found")
+if [[ "$DNS_PLUGIN_CHECK" != "not-found" ]]; then
+    echo "DNS plugin is currently installed: $DNS_PLUGIN_CHECK"
+    echo "Uninstalling existing DNS plugin..."
+    sudo dokku plugin:uninstall dns --force 2>/dev/null || echo "Standard uninstall failed, trying force removal..."
+    sleep 2  # Give time for cleanup
+    
+    # Force removal of plugin directories
+    echo "Forcing removal of plugin directories..."
+    sudo rm -rf /var/lib/dokku/plugins/available/dns 2>/dev/null || true
+    sudo rm -rf /var/lib/dokku/plugins/enabled/dns 2>/dev/null || true
+    
+    # Verify removal
+    DNS_PLUGIN_RECHECK=$(sudo dokku plugin:list 2>/dev/null | grep dns || echo "not-found")
+    if [[ "$DNS_PLUGIN_RECHECK" != "not-found" ]]; then
+        echo "Warning: DNS plugin still present after cleanup: $DNS_PLUGIN_RECHECK"
+    else
+        echo "✓ DNS plugin successfully removed"
+    fi
+else
+    echo "DNS plugin is not currently installed"
+fi
+
+REMOTE_SCRIPT_EOF
+
+    # Add AWS credential setup if credentials are available
+    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        cat >> "$script_file" << CRED_SCRIPT_EOF
+
+# Set up temporary AWS credentials for testing
+log_remote "INFO" "=== SETTING UP TEMPORARY AWS CREDENTIALS ==="
+echo "Local AWS credentials detected - configuring temporarily on remote server"
+echo "Test app: ${TEST_APP}"
+
+# Configure for current user
+mkdir -p ~/.aws
+cat > ~/.aws/credentials << 'AWS_CRED_EOF'
+[default]
+aws_access_key_id = ${AWS_ACCESS_KEY}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+AWS_CRED_EOF
+
+# Also configure for root (for sudo operations like plugin install)
+sudo mkdir -p /root/.aws
+sudo tee /root/.aws/credentials > /dev/null << 'AWS_CRED_EOF'
+[default]
+aws_access_key_id = ${AWS_ACCESS_KEY}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+AWS_CRED_EOF
+
+# Configure region for both users
+cat > ~/.aws/config << 'AWS_CONFIG_EOF'
+[default]
+region = us-east-1
+output = json
+AWS_CONFIG_EOF
+
+sudo tee /root/.aws/config > /dev/null << 'AWS_CONFIG_EOF'
+[default]
+region = us-east-1
+output = json
+AWS_CONFIG_EOF
+
+# Test AWS CLI configuration
+log_remote "INFO" "Testing AWS CLI configuration..."
+aws sts get-caller-identity
+echo "✓ Temporary AWS credentials configured - expecting best-case auto-detection!"
+CRED_SCRIPT_EOF
+    else
+        cat >> "$script_file" << 'NO_CRED_SCRIPT_EOF'
+
+log_remote "INFO" "=== NO AWS CREDENTIALS PROVIDED ==="
+echo "No local AWS credentials found in environment"
+echo "Test app: ${TEST_APP}"
+echo "Set AWS_ACCESS_KEY and AWS_SECRET_ACCESS_KEY to test with credentials"
+NO_CRED_SCRIPT_EOF
+    fi
+
+    # Add the rest of the script
+    cat >> "$script_file" << 'REMOTE_SCRIPT_EOF2'
+
+# Install the plugin
+log_remote "INFO" "=== INSTALLING DNS PLUGIN ==="
+REMOTE_SCRIPT_EOF2
+
+    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        cat >> "$script_file" << 'WITH_CRED_MSG_EOF'
+echo "Expected installation scenario with AWS credentials:"
+echo "  🚀 Best case expected: AWS CLI ready with Route53 access → Immediate use"
+echo "     Should see: ✓ Route53 access confirmed with hosted zone count"
+WITH_CRED_MSG_EOF
+    else
+        cat >> "$script_file" << 'NO_CRED_MSG_EOF'
+echo "Expected installation scenarios without credentials:"
+echo "  🔧 Expected: AWS CLI detected → Needs 'aws configure'"
+echo "  ⚙️ Fallback: No CLI detected → Manual setup required"
+NO_CRED_MSG_EOF
+    fi
+
+    cat >> "$script_file" << 'REMOTE_SCRIPT_EOF3'
+
+sudo dokku plugin:install https://github.com/deanmarano/dokku-dns.git
+
+# Verify installation
+log_remote "INFO" "=== VERIFYING INSTALLATION ==="
+sudo dokku plugin:list | grep dns
+sudo dokku help | grep dns
+sudo dokku dns:help || echo "Help command failed, but plugin might still work"
+
+# Test provider capabilities
+log_remote "INFO" "=== TESTING PROVIDER CAPABILITIES ==="
+if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
+    echo "✓ AWS CLI is installed and configured - should be ready to use"
+    aws route53 list-hosted-zones >/dev/null 2>&1 && echo 'Route53 access confirmed' || echo 'Route53 access limited'
+    sudo dokku dns:verify 2>&1 || true
+elif command -v aws >/dev/null 2>&1; then
+    echo "🔧 AWS CLI is installed but not configured"
+    timeout 10s sudo dokku dns:verify < /dev/null 2>&1 || true
+else
+    echo "⚙️ AWS CLI not installed"
+    sudo dokku dns:verify 2>&1 || true
+fi
+
+# Test implemented DNS commands only
+log_remote "INFO" "=== TESTING IMPLEMENTED DNS COMMANDS ==="
+
+# Test app availability first
+echo "Testing with app: ${TEST_APP}"
+if ! sudo dokku apps:list 2>/dev/null | grep -q "${TEST_APP}"; then
+    echo "Warning: App '${TEST_APP}' not found. Available apps:"
+    sudo dokku apps:list 2>/dev/null || echo "No apps found"
+    echo "Using first available app for testing..."
+    AVAILABLE_APP=$(sudo dokku apps:list 2>/dev/null | grep -v "====>" | head -1 | xargs)
+    if [[ -n "$AVAILABLE_APP" ]]; then
+        TEST_APP="$AVAILABLE_APP"
+        echo "Using app: $TEST_APP"
+    else
+        echo "No apps available for testing app-specific commands"
+        TEST_APP=""
+    fi
+fi
+
+# Test the 6 implemented DNS commands
+log_remote "INFO" "Testing implemented DNS commands..."
+
+echo "1. Testing dns:help"
+sudo dokku dns:help 2>&1 || echo "Help command failed"
+
+echo "2. Testing dns:verify (verify DNS provider setup and connectivity + discover existing records)"
+sudo dokku dns:verify 2>&1 || echo "Verify command completed"
+
+echo "3. Testing dns:configure (configure global DNS provider)"
+sudo dokku dns:configure 2>&1 || echo "Configure command completed"
+
+if [[ -n "$TEST_APP" ]]; then
+    echo "4. Testing dns:add $TEST_APP (add app domains to DNS management)"
+    sudo dokku dns:add "$TEST_APP" 2>&1 || echo "Add command completed"
+    
+    echo "5. Testing dns:sync $TEST_APP (synchronize DNS records for app)"
+    sudo dokku dns:sync "$TEST_APP" 2>&1 || echo "Sync command completed"
+    
+    echo "6. Testing dns:report $TEST_APP (display DNS sync status and domain info)"
+    sudo dokku dns:report "$TEST_APP" 2>&1 || echo "Report command completed"
+else
+    echo "4-6. Skipping app-specific commands (no apps available)"
+    echo "     Showing usage for app-required commands:"
+    echo "4. Testing dns:add (expects app name)"
+    sudo dokku dns:add 2>&1 || echo "Add command shows usage"
+    echo "5. Testing dns:sync (expects app name)"  
+    sudo dokku dns:sync 2>&1 || echo "Sync command shows usage"
+    echo "6. Testing dns:report (expects app name)"
+    sudo dokku dns:report 2>&1 || echo "Report command shows usage"
+fi
+
+log_remote "SUCCESS" "DNS command testing completed! Tested 6 implemented commands."
+
+# Test Route53 capabilities if AWS is configured
+REMOTE_SCRIPT_EOF3
+
+    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        cat >> "$script_file" << 'ROUTE53_TEST_EOF'
+log_remote "INFO" "=== TESTING ROUTE53 CAPABILITIES ==="
+aws route53 list-hosted-zones --query 'HostedZones[].Name' --output table 2>/dev/null || echo 'No hosted zones or limited access'
+ROUTE53_TEST_EOF
+    fi
+
+    cat >> "$script_file" << 'REMOTE_SCRIPT_EOF4'
+
+log_remote "SUCCESS" "=== PLUGIN TEST COMPLETED ==="
+
+# Cleanup AWS credentials
+log_remote "INFO" "=== CLEANING UP AWS CONFIGURATION ==="
+if [[ -f /tmp/aws_credentials_backup ]]; then
+    mkdir -p ~/.aws
+    cp /tmp/aws_credentials_backup ~/.aws/credentials
+    echo "Restored original AWS credentials"
+else
+    rm -f ~/.aws/credentials
+    sudo rm -f /root/.aws/credentials
+    echo "Removed test AWS credentials"
+fi
+
+if [[ -f /tmp/aws_config_backup ]]; then
+    mkdir -p ~/.aws
+    cp /tmp/aws_config_backup ~/.aws/config
+    echo "Restored original AWS config"
+else
+    rm -f ~/.aws/config
+    sudo rm -f /root/.aws/config
+    echo "Removed test AWS config"
+fi
+
+rm -f /tmp/aws_credentials_backup /tmp/aws_config_backup
+echo "✓ AWS configuration restored to original state"
+
+REMOTE_SCRIPT_EOF4
+
+    echo "$script_file"
+}
 
 main() {
     log "INFO" "Starting DNS Sync plugin test on server: $SERVER_HOST"
     log "INFO" "SSH User: $SSH_USER"
+    log "INFO" "Test App: $TEST_APP"
     log "INFO" "Log file: $LOG_FILE"
     echo ""
     
     # Test SSH connection  
     log "INFO" "Testing SSH connection..."
-    if ! ssh -o ConnectTimeout=10 -t "$SSH_USER@$SERVER_HOST" "echo 'SSH connection successful'" >/dev/null 2>&1; then
+    if ! ssh -o ConnectTimeout=10 "$SSH_USER@$SERVER_HOST" "echo 'SSH connection successful'" >/dev/null 2>&1; then
         log "ERROR" "Cannot connect to $SERVER_HOST as $SSH_USER"
         log "ERROR" "Please check your SSH configuration and server details"
         exit 1
@@ -119,320 +328,59 @@ main() {
     log "SUCCESS" "SSH connection established"
     echo ""
     
-    # Check and backup existing AWS configuration
-    log "INFO" "Checking existing AWS configuration..."
-    run_remote_command "Check current AWS state" "
-        echo 'Current AWS CLI state:'
-        if command -v aws >/dev/null 2>&1; then
-            echo '✓ AWS CLI is installed'
-            if aws sts get-caller-identity 2>/dev/null; then
-                echo '✓ AWS CLI is configured and authenticated'
-            else
-                echo '⚠ AWS CLI is installed but not configured'
-            fi
-        else
-            echo '- AWS CLI is not installed'
-        fi
-    " || log "WARNING" "Failed to check AWS state"
+    # Generate the remote script
+    log "INFO" "Generating remote test script..."
+    local SCRIPT_FILE
+    SCRIPT_FILE=$(generate_remote_script)
     
-    # Backup existing AWS configuration
-    run_remote_command "Backup existing AWS configuration" "
-        if [[ -f ~/.aws/credentials ]]; then
-            cp ~/.aws/credentials /tmp/aws_credentials_backup
-            echo 'Backed up existing AWS credentials'
-        else
-            echo 'No existing AWS credentials to backup'
-        fi
-        if [[ -f ~/.aws/config ]]; then
-            cp ~/.aws/config /tmp/aws_config_backup
-            echo 'Backed up existing AWS config'
-        else
-            echo 'No existing AWS config to backup'
-        fi
-    " || log "WARNING" "Failed to backup AWS configuration"
-    echo ""
-    
-    # Check if Dokku is installed
-    log "INFO" "Checking if Dokku is installed..."
-    run_remote_command "Check Dokku version" "sudo dokku version" || {
-        log "ERROR" "Dokku is not installed or not working on the server"
-        exit 1
-    }
-    echo ""
-    
-    # Check current plugin status
-    log "INFO" "Checking current plugin status..."
-    run_remote_command "List installed plugins" "sudo dokku plugin:list"
-    echo ""
-    
-    # Check if dns plugin is installed
-    log "INFO" "Checking if dns plugin is currently installed..."
-    if run_remote_command "Check dns plugin" "sudo dokku plugin:list | grep -q dns"; then
-        log "WARNING" "DNS plugin is currently installed, will uninstall first"
-        
-        # Uninstall existing plugin
-        log "INFO" "Uninstalling existing dns plugin..."
-        run_remote_command "Uninstall dns plugin" "sudo dokku plugin:uninstall dns --force" || {
-            log "WARNING" "Plugin uninstall failed, continuing anyway..."
-        }
-    else
-        log "INFO" "DNS plugin is not currently installed"
-    fi
-    echo ""
-    
-    # Set up temporary AWS credentials for testing (if available locally)
+    # Check credentials
     if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-        log "INFO" "Setting up temporary AWS credentials for testing..."
-        echo "Local AWS credentials detected - configuring temporarily on remote server"
-        
-        # Configure temporary AWS CLI on remote server (both user and root)
-        run_remote_command "Configure temporary AWS CLI credentials" "
-            # Configure for current user
-            mkdir -p ~/.aws && 
-            cat > ~/.aws/credentials << EOF
-[default]
-aws_access_key_id = ${AWS_ACCESS_KEY}
-aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
-EOF
-            
-            # Also configure for root (for sudo operations like plugin install)
-            sudo mkdir -p /root/.aws &&
-            sudo tee /root/.aws/credentials > /dev/null << EOF
-[default]
-aws_access_key_id = ${AWS_ACCESS_KEY}
-aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
-EOF
-        " || {
-            log "WARNING" "Failed to configure temporary AWS credentials, continuing without..."
-        }
-        
-        run_remote_command "Set temporary AWS default region" "
-            # Configure for current user
-            cat > ~/.aws/config << 'EOF'
-[default]
-region = us-east-1
-output = json
-EOF
-            
-            # Also configure for root
-            sudo tee /root/.aws/config > /dev/null << 'EOF'
-[default]
-region = us-east-1
-output = json
-EOF
-        " || {
-            log "WARNING" "Failed to set temporary AWS region, continuing..."
-        }
-        
-        # Test temporary AWS CLI configuration
-        run_remote_command "Test temporary AWS CLI configuration" "aws sts get-caller-identity" || {
-            log "WARNING" "Temporary AWS CLI test failed, but continuing with installation..."
-        }
-        
-        echo ""
-        log "SUCCESS" "Temporary AWS credentials configured - expecting best-case auto-detection!"
-        echo ""
+        log "SUCCESS" "AWS credentials detected - will test best-case auto-detection"
     else
-        log "INFO" "No local AWS credentials found in environment"
+        log "INFO" "No AWS credentials provided - will test basic auto-detection"
         echo "Set AWS_ACCESS_KEY and AWS_SECRET_ACCESS_KEY to test with credentials"
-        echo ""
-    fi
-    
-    # Install the plugin from GitHub
-    log "INFO" "Installing dns plugin from GitHub..."
-    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-        echo "Expected installation scenario with AWS credentials:"
-        echo "  🚀 Best case expected: AWS CLI ready with Route53 access → Immediate use"
-        echo "     Should see: ✓ Route53 access confirmed with hosted zone count"
-    else
-        echo "Expected installation scenarios without credentials:"
-        echo "  🔧 Expected: AWS CLI detected → Needs 'aws configure'"
-        echo "  ⚙️ Fallback: No CLI detected → Manual setup required"
     fi
     echo ""
     
-    run_remote_command "Install dns plugin with auto-detection" "sudo dokku plugin:install $PLUGIN_REPO" || {
-        log "ERROR" "Plugin installation failed"
+    # Run the entire test in a single SSH session
+    log "INFO" "Executing comprehensive test via single SSH session..."
+    echo "This will run all tests in one SSH connection to minimize password prompts"
+    echo ""
+    
+    # Copy script and execute
+    if scp "$SCRIPT_FILE" "$SSH_USER@$SERVER_HOST:/tmp/dokku-dns-test.sh" 2>&1 | tee -a "$LOG_FILE"; then
+        log "SUCCESS" "Test script uploaded successfully"
+    else
+        log "ERROR" "Failed to upload test script"
         exit 1
-    }
-    echo ""
+    fi
     
-    # Verify installation
-    log "INFO" "Verifying installation..."
-    run_remote_command "Verify plugin installation" "sudo dokku plugin:list | grep dns"
-    echo ""
-    
-    # Check available commands
-    log "INFO" "Checking available dns commands..."
-    run_remote_command "List dns commands" "sudo dokku help | grep dns"
-    echo ""
-    
-    # Test basic command functionality
-    log "INFO" "Testing basic command functionality..."
-    run_remote_command "Test dns help" "sudo dokku dns:help" || {
-        log "WARNING" "Help command failed, but plugin might still work"
-    }
-    echo ""
-    
-    # List all available commands  
-    log "INFO" "Testing all available DNS commands..."
-    echo "Available DNS commands (implemented with intelligent provider matching):"
-    echo "  - dns:add <app> [domains...]  - Add app domains to DNS (auto-detects providers)"
-    echo "  - dns:sync <app>             - Sync DNS records (multi-provider support)"
-    echo "  - dns:verify                 - Verify DNS provider setup"
-    echo "  - dns:report <app>           - Show DNS sync status"
-    echo "  - dns:configure <provider>   - Configure DNS provider (optional)"
-    echo ""
-    echo "Key improvements:"
-    echo "  ✓ No provider configuration required - auto-detects from hosted zones"
-    echo "  ✓ Multi-provider support - different domains can use different providers"
-    echo "  ✓ Intelligent domain matching - checks AWS Route53, Cloudflare automatically"
-    echo ""
-    echo "Available DNS commands (unimplemented/inherited):"
-    echo "  - dns:app-links, dns:backup*, dns:clone, dns:connect, dns:destroy"
-    echo "  - dns:enter, dns:exists, dns:export, dns:expose, dns:import"  
-    echo "  - dns:info, dns:link, dns:linked, dns:links, dns:list, dns:logs"
-    echo "  - dns:pause, dns:promote, dns:restart, dns:set, dns:set-provider"
-    echo "  - dns:start, dns:stop, dns:unexpose, dns:unlink, dns:upgrade"
-    echo ""
-    
-    # Test auto-detection results
-    log "INFO" "Testing auto-detection results from installation..."
-    
-    # Check what provider was auto-detected
-    run_remote_command "Check auto-detected provider status" "sudo dokku dns:report 2>&1 || echo 'No global configuration found'"
-    echo ""
-    
-    # Test provider capabilities based on what was detected
-    log "INFO" "Testing provider capabilities..."
-    
-    # Check if AWS CLI is available and configured
-    if run_remote_command "Check AWS CLI availability" "command -v aws && aws sts get-caller-identity >/dev/null 2>&1"; then
-        log "SUCCESS" "✓ AWS CLI is installed and configured - should be ready to use"
-        
-        # Test Route53 permissions
-        run_remote_command "Test Route53 permissions" "aws route53 list-hosted-zones >/dev/null 2>&1 && echo 'Route53 access confirmed' || echo 'Route53 access limited'"
-        
-        # Test verify (should succeed)
-        run_remote_command "Test verify with working AWS" "sudo dokku dns:verify 2>&1 || true"
-        
-    elif run_remote_command "Check AWS CLI installation only" "command -v aws"; then
-        log "INFO" "🔧 AWS CLI is installed but not configured"
-        
-        # Test verify (should show configuration instructions)
-        run_remote_command "Test verify with unconfigured AWS" "timeout 10s sudo dokku dns:verify < /dev/null 2>&1 || true"
-        
+    # Execute the test script
+    if ssh -t "$SSH_USER@$SERVER_HOST" "chmod +x /tmp/dokku-dns-test.sh && /tmp/dokku-dns-test.sh; rm -f /tmp/dokku-dns-test.sh" 2>&1 | tee -a "$LOG_FILE"; then
+        log "SUCCESS" "Remote test execution completed"
     else
-        log "INFO" "⚙️ AWS CLI not installed - manual setup required"
-        
-        # Test what happens when no CLI is available
-        run_remote_command "Test commands without CLI" "sudo dokku dns:verify 2>&1 || true"
-    fi
-    echo ""
-    
-    # Test with real domains if AWS is properly configured
-    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-        log "INFO" "Testing intelligent domain matching with configured AWS..."
-        
-        # First check if we have any hosted zones
-        if run_remote_command "List Route53 hosted zones" "aws route53 list-hosted-zones --query 'HostedZones[].Name' --output table 2>/dev/null || echo 'No hosted zones or limited access'"; then
-            log "INFO" "If you have hosted zones, you can test domain matching with a real app"
-            echo "Example test you can run manually:"
-            echo "  1. Create test app: sudo dokku apps:create test-dns-app"
-            echo "  2. Add domain that matches a hosted zone: sudo dokku domains:add test-dns-app yourdomain.com"
-            echo "  3. Test DNS add: sudo dokku dns:add test-dns-app"
-            echo "  4. Test DNS sync: sudo dokku dns:sync test-dns-app"
-            echo "  5. Clean up: sudo dokku apps:destroy test-dns-app"
-        fi
-        echo ""
+        log "WARNING" "Remote test completed with some errors"
     fi
     
-    # Test intelligent provider matching system
-    log "INFO" "Testing intelligent provider matching system..."
-    
-    # Test add command behavior (should auto-detect providers)
-    run_remote_command "Test dns:add command (expects app name)" "sudo dokku dns:add 2>&1 || echo 'Shows usage as expected'"
-    
-    # Test sync command behavior (should auto-detect providers)  
-    run_remote_command "Test dns:sync command (expects app name)" "sudo dokku dns:sync 2>&1 || echo 'Shows usage as expected'"
-    
-    # Test verify command (diagnostic tool)
-    run_remote_command "Test dns:verify command" "sudo dokku dns:verify 2>&1 || echo 'Verify command completed'"
-    
-    # Test configure command (optional now)
-    run_remote_command "Test dns:configure command" "sudo dokku dns:configure 2>&1 || echo 'Configure command available'"
-    
-    # Test with hypothetical domains to see provider detection
-    log "INFO" "Testing provider detection behavior..."
-    run_remote_command "Test add with fake app (will show detection logic)" "sudo dokku dns:add nonexistent-app fake-domain.com 2>&1 || echo 'Expected to fail - no such app'"
-    
-    # Test with a sample app if it exists
-    log "INFO" "Testing with sample app (if available)..."
-    if run_remote_command "Check for existing apps" "sudo dokku apps:list 2>/dev/null || true"; then
-        # Try to find first app for testing
-        run_remote_command "Test report with first app" "sudo dokku apps:list 2>/dev/null | head -1 | xargs -r sudo dokku dns:report 2>&1 || true"
-    else
-        log "INFO" "No apps found for testing app-specific commands"
-    fi
-    echo ""
-    
-    # Final status
-    log "INFO" "Plugin test completed!"
-    log "INFO" "Log file saved as: $LOG_FILE"
-    
-    # Show summary
-    echo ""
-    echo "=== TEST SUMMARY ==="
-    if grep -q "Status: FAILED" "$LOG_FILE"; then
-        log "WARNING" "Some commands failed - check the log file for details"
-        echo "Failed commands:"
-        grep -B2 "Status: FAILED" "$LOG_FILE" | grep "Command:" | sed 's/Command: /  - /'
-    else
-        log "SUCCESS" "All critical commands completed successfully!"
-    fi
-    
-    echo ""
-    log "INFO" "Manual testing guide based on auto-detection results:"
-    echo "  ssh $SSH_USER@$SERVER_HOST"
-    echo ""
-    
-    # Provide scenario-specific instructions
-    echo "📋 Testing scenarios with intelligent provider matching:"
-    echo ""
-    echo "🚀 SCENARIO 1: AWS CLI Ready + Hosted Zones (Best case)"
-    echo "  If you saw: '✓ AWS CLI configured' and 'Route53 access confirmed'"
-    echo "  Test with real domains that have hosted zones:"
-    echo "    sudo dokku domains:add myapp yourdomain.com   # Add domain to app first"
-    echo "    sudo dokku dns:add myapp                      # Auto-detects AWS provider"
-    echo "    sudo dokku dns:sync myapp                     # Syncs to Route53 automatically"
-    echo ""
-    echo "🔧 SCENARIO 2: AWS CLI Ready but No Hosted Zones"
-    echo "  Commands will work but show 'no provider found for domains'"
-    echo "  Create hosted zones in Route53 first:"
-    echo "    aws route53 create-hosted-zone --name yourdomain.com --caller-reference \$(date +%s)"
-    echo "    sudo dokku dns:add myapp yourdomain.com       # Will now detect AWS"
-    echo ""
-    echo "⚙️ SCENARIO 3: No CLI Tools / Not Configured"
-    echo "  Setup AWS CLI:"
-    echo "    sudo apt update && sudo apt install awscli    # Install CLI"
-    echo "    aws configure                                 # Configure credentials"
-    echo "    # Create hosted zones in Route53"
-    echo "    sudo dokku dns:add myapp                      # Will auto-detect"
-    echo ""
-    echo "🔍 Multi-Provider Scenario:"
-    echo "  If you have domains in both AWS Route53 and Cloudflare:"
-    echo "    sudo dokku dns:sync myapp                     # Automatically uses:"
-    echo "    # → AWS for domains with Route53 hosted zones"
-    echo "    # → Cloudflare for domains with Cloudflare zones"
-    echo ""
-    echo "📊 Diagnostic commands:"
-    echo "  sudo dokku dns:verify                           # Test provider access"
-    echo "  sudo dokku dns:report myapp                     # Show domain → provider mapping"
+    # Clean up local script
+    rm -f "$SCRIPT_FILE"
     
     echo ""
     echo "===================================================================================="
     log "INFO" "TEST COMPLETED - Log file saved as: $LOG_FILE"
     echo "===================================================================================="
+    
+    echo ""
+    log "INFO" "Manual testing guide:"
+    echo "  ssh $SSH_USER@$SERVER_HOST"
+    echo ""
+    echo "Available commands to test:"
+    echo "  sudo dokku dns:help                    # Show all commands"
+    echo "  sudo dokku dns:verify                  # Test provider access + discover existing DNS records"
+    echo "  sudo dokku dns:configure               # Configure DNS provider"
+    echo "  sudo dokku dns:add <app>               # Add app domains to DNS"
+    echo "  sudo dokku dns:sync <app>              # Sync DNS records"
+    echo "  sudo dokku dns:report <app>            # Show domain status"
 }
 
 # Check if script is being sourced or executed
