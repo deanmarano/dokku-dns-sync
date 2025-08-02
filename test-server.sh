@@ -252,20 +252,27 @@ if [[ -n "$TEST_APP" ]]; then
     echo "5. Testing dns:sync $TEST_APP (synchronize DNS records for app)"
     sudo dokku dns:sync "$TEST_APP" 2>&1 || echo "Sync command completed"
     
-    echo "6. Testing dns:report $TEST_APP (display DNS sync status and domain info)"
-    sudo dokku dns:report "$TEST_APP" 2>&1 || echo "Report command completed"
+    echo "6. Testing dns:report (global report - all apps and domains)"
+    sudo dokku dns:report 2>&1 || echo "Global report command completed"
+    
+    echo "7. Testing dns:report $TEST_APP (app-specific DNS sync status and domain info)"
+    sudo dokku dns:report "$TEST_APP" 2>&1 || echo "App report command completed"
 else
-    echo "4-6. Skipping app-specific commands (no apps available)"
+    echo "4-5. Skipping app-specific commands (no apps available)"
     echo "     Showing usage for app-required commands:"
     echo "4. Testing dns:add (expects app name)"
     sudo dokku dns:add 2>&1 || echo "Add command shows usage"
     echo "5. Testing dns:sync (expects app name)"  
     sudo dokku dns:sync 2>&1 || echo "Sync command shows usage"
-    echo "6. Testing dns:report (expects app name)"
-    sudo dokku dns:report 2>&1 || echo "Report command shows usage"
+    
+    echo "6. Testing dns:report (global report - should work without apps)"
+    sudo dokku dns:report 2>&1 || echo "Global report command completed"
+    
+    echo "7. Testing dns:report with non-existent app (should show usage)"
+    sudo dokku dns:report nonexistent-app 2>&1 || echo "App report shows usage"
 fi
 
-log_remote "SUCCESS" "DNS command testing completed! Tested 6 implemented commands."
+log_remote "SUCCESS" "DNS command testing completed! Tested 7 implemented command scenarios."
 
 # Test Route53 capabilities if AWS is configured
 REMOTE_SCRIPT_EOF3
@@ -380,7 +387,8 @@ main() {
     echo "  sudo dokku dns:configure               # Configure DNS provider"
     echo "  sudo dokku dns:add <app>               # Add app domains to DNS"
     echo "  sudo dokku dns:sync <app>              # Sync DNS records"
-    echo "  sudo dokku dns:report <app>            # Show domain status"
+    echo "  sudo dokku dns:report                  # Show global report (all apps and domains)"
+    echo "  sudo dokku dns:report <app>            # Show app-specific domain status"
 }
 
 # Check if script is being sourced or executed
