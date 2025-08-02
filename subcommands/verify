@@ -5,13 +5,13 @@ set -eo pipefail
 source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
-service-provider-auth-cmd() {
-  #E verify provider authentication credentials
-  #E dokku $PLUGIN_COMMAND_PREFIX:provider-auth
-  #E for AWS: checks if AWS CLI is configured (use 'aws configure' to set up)
-  #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN and stores securely
-  declare desc="verify provider authentication for $PLUGIN_SERVICE"
-  local cmd="$PLUGIN_COMMAND_PREFIX:provider-auth" argv=("$@")
+service-verify-cmd() {
+  #E verify DNS provider setup and connectivity
+  #E dokku $PLUGIN_COMMAND_PREFIX:verify
+  #E for AWS: checks if AWS CLI is configured and tests Route53 access
+  #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN if not set, then validates access
+  declare desc="verify DNS provider setup and connectivity"
+  local cmd="$PLUGIN_COMMAND_PREFIX:verify" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
   
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
@@ -143,10 +143,10 @@ You can attach the AWS managed policy 'AmazonRoute53FullAccess' or create a cust
       ;;
   esac
   
-  dokku_log_info2 "Provider authentication verified successfully"
-  dokku_log_info1 "Next steps:"
-  dokku_log_info1 "  1. Add domains to an app: dokku $PLUGIN_COMMAND_PREFIX:add-domains <app>"
+  dokku_log_info2 "DNS provider verification completed successfully"
+  dokku_log_info1 "Ready to use! Next steps:"
+  dokku_log_info1 "  1. Add domains to an app: dokku $PLUGIN_COMMAND_PREFIX:add <app>"
   dokku_log_info1 "  2. Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
 }
 
-service-provider-auth-cmd "$@"
+service-verify-cmd "$@"

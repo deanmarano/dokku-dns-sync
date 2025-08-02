@@ -73,7 +73,7 @@ You can either:
 After configuring AWS CLI, run:
 
 ```shell
-dokku dns:provider-auth
+dokku dns:verify
 ```
 
 This will:
@@ -84,7 +84,7 @@ This will:
 
 ## Cloudflare Setup
 
-For Cloudflare, the plugin will prompt you for an API token during `dokku dns:provider-auth`.
+For Cloudflare, the plugin will prompt you for an API token during `dokku dns:verify`.
 
 ### Create Cloudflare API Token
 
@@ -99,8 +99,8 @@ For Cloudflare, the plugin will prompt you for an API token during `dokku dns:pr
 
 ### Configure Token
 
-Run the provider auth command and enter your token when prompted:
+Run the verify command and enter your token when prompted:
 
 ```shell
-dokku dns:provider-auth
+dokku dns:verify
 ```

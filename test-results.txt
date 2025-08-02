@@ -1,0 +1,379 @@
+[0;34m[INFO][0m Starting DNS Sync plugin test on server: duodeca.local
+[0;34m[INFO][0m SSH User: dean
+[0;34m[INFO][0m Log file: test-server-20250801-220641.log
+[0;34m[INFO][0m Testing SSH connection...
+[0;32m[SUCCESS][0m SSH connection established
+[0;34m[INFO][0m Checking if Dokku is installed...
+[1;33m[COMMAND][0m Running: Check Dokku version
+[1;33m[COMMAND][0m SSH Command: sudo dokku version
+----------------------------------------
+Command: Check Dokku version
+SSH Command: sudo dokku version
+Output:
+/home/dean/.bashrc: line 35: bind: warning: line editing not enabled
+/home/dean/.bashrc: line 36: bind: warning: line editing not enabled
+dokku version 0.35.20
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Check Dokku version completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Checking current plugin status...
+[1;33m[COMMAND][0m Running: List installed plugins
+[1;33m[COMMAND][0m SSH Command: sudo dokku plugin:list
+----------------------------------------
+Command: List installed plugins
+SSH Command: sudo dokku plugin:list
+Output:
+/home/dean/.bashrc: line 35: bind: warning: line editing not enabled
+/home/dean/.bashrc: line 36: bind: warning: line editing not enabled
+  00_dokku-standard    0.35.20 enabled    dokku core standard plugin
+  20_events            0.35.20 enabled    dokku core events logging plugin
+  app-json             0.35.20 enabled    dokku core app-json plugin
+  apps                 0.35.20 enabled    dokku core apps plugin
+  builder              0.35.20 enabled    dokku core builder plugin
+  builder-dockerfile   0.35.20 enabled    dokku core builder-dockerfile plugin
+  builder-herokuish    0.35.20 enabled    dokku core builder-herokuish plugin
+  builder-lambda       0.35.20 enabled    dokku core builder-lambda plugin
+  builder-nixpacks     0.35.20 enabled    dokku core builder-nixpacks plugin
+  builder-null         0.35.20 enabled    dokku core builder-null plugin
+  builder-pack         0.35.20 enabled    dokku core builder-pack plugin
+  buildpacks           0.35.20 enabled    dokku core buildpacks plugin
+  caddy-vhosts         0.35.20 enabled    dokku core caddy-vhosts plugin
+  certs                0.35.20 enabled    dokku core certificate management plugin
+  checks               0.35.20 enabled    dokku core checks plugin
+  common               0.35.20 enabled    dokku core common plugin
+  config               0.35.20 enabled    dokku core config plugin
+  cron                 0.35.20 enabled    dokku core cron plugin
+  dns                  0.1.0 enabled    dokku dns synchronization service plugin
+  docker-options       0.35.20 enabled    dokku core docker-options plugin
+  domains              0.35.20 enabled    dokku core domains plugin
+  enter                0.35.20 enabled    dokku core enter plugin
+  git                  0.35.20 enabled    dokku core git plugin
+  haproxy-vhosts       0.35.20 enabled    dokku core haproxy-vhosts plugin
+  letsencrypt          0.20.3 enabled    Automated installation of let's encrypt TLS certificates
+  logs                 0.35.20 enabled    dokku core logs plugin
+  memcached            1.35.9 enabled    dokku memcached service plugin
+  network              0.35.20 enabled    dokku core network plugin
+  nginx-vhosts         0.35.20 enabled    dokku core nginx-vhosts plugin
+  openresty-vhosts     0.35.20 enabled    dokku core openresty-vhosts plugin
+  plugin               0.35.20 enabled    dokku core plugin plugin
+  ports                0.35.20 enabled    dokku core ports plugin
+  postgres             1.37.0 enabled    dokku postgres service plugin
+  proxy                0.35.20 enabled    dokku core proxy plugin
+  ps                   0.35.20 enabled    dokku core ps plugin
+  redis                1.20.0 enabled    dokku redis service plugin
+  registry             0.35.20 enabled    dokku core registry plugin
+  repo                 0.35.20 enabled    dokku core repo plugin
+  resource             0.35.20 enabled    dokku core resource plugin
+  run                  0.35.20 enabled    dokku core run plugin
+  scheduler            0.35.20 enabled    dokku core scheduler plugin
+  scheduler-docker-local 0.35.20 enabled    dokku core scheduler-docker-local plugin
+  scheduler-k3s        0.35.20 enabled    dokku core scheduler-k3s plugin
+  scheduler-null       0.35.20 enabled    dokku core scheduler-null plugin
+  shell                0.35.20 enabled    dokku core shell plugin
+  ssh-keys             0.35.20 enabled    dokku core ssh-keys plugin
+  storage              0.35.20 enabled    dokku core storage plugin
+  trace                0.35.20 enabled    dokku core trace plugin
+  traefik-vhosts       0.35.20 enabled    dokku core traefik-vhosts plugin
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m List installed plugins completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Checking if dns plugin is currently installed...
+[1;33m[COMMAND][0m Running: Check dns plugin
+[1;33m[COMMAND][0m SSH Command: sudo dokku plugin:list | grep -q dns
+----------------------------------------
+Command: Check dns plugin
+SSH Command: sudo dokku plugin:list | grep -q dns
+Output:
+/home/dean/.bashrc: line 35: bind: warning: line editing not enabled
+/home/dean/.bashrc: line 36: bind: warning: line editing not enabled
+2025/08/01 22:06:42 signal: broken pipe
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Check dns plugin completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[1;33m[WARNING][0m DNS plugin is currently installed, will uninstall first
+[0;34m[INFO][0m Uninstalling existing dns plugin...
+[1;33m[COMMAND][0m Running: Uninstall dns plugin
+[1;33m[COMMAND][0m SSH Command: sudo dokku plugin:uninstall dns --force
+----------------------------------------
+Command: Uninstall dns plugin
+SSH Command: sudo dokku plugin:uninstall dns --force
+Output:
+/home/dean/.bashrc: line 35: bind: warning: line editing not enabled
+/home/dean/.bashrc: line 36: bind: warning: line editing not enabled
+-----> Plugin dns uninstalled
+-----> Priming bash-completion cache
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Uninstall dns plugin completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Installing dns plugin from GitHub...
+[1;33m[COMMAND][0m Running: Install dns plugin with auto-detection
+[1;33m[COMMAND][0m SSH Command: sudo dokku plugin:install https://github.com/deanmarano/dokku-dns.git
+----------------------------------------
+Command: Install dns plugin with auto-detection
+SSH Command: sudo dokku plugin:install https://github.com/deanmarano/dokku-dns.git
+Output:
+/home/dean/.bashrc: line 35: bind: warning: line editing not enabled
+/home/dean/.bashrc: line 36: bind: warning: line editing not enabled
+-----> Cloning plugin repo https://github.com/deanmarano/dokku-dns.git to /var/lib/dokku/plugins/available/dns
+Cloning into 'dns'...
+remote: Enumerating objects: 3186, done.[K
+remote: Counting objects:   0% (1/760)[Kremote: Counting objects:   1% (8/760)[Kremote: Counting objects:   2% (16/760)[Kremote: Counting objects:   3% (23/760)[Kremote: Counting objects:   4% (31/760)[Kremote: Counting objects:   5% (38/760)[Kremote: Counting objects:   6% (46/760)[Kremote: Counting objects:   7% (54/760)[Kremote: Counting objects:   8% (61/760)[Kremote: Counting objects:   9% (69/760)[Kremote: Counting objects:  10% (76/760)[Kremote: Counting objects:  11% (84/760)[Kremote: Counting objects:  12% (92/760)[Kremote: Counting objects:  13% (99/760)[Kremote: Counting objects:  14% (107/760)[Kremote: Counting objects:  15% (114/760)[Kremote: Counting objects:  16% (122/760)[Kremote: Counting objects:  17% (130/760)[Kremote: Counting objects:  18% (137/760)[Kremote: Counting objects:  19% (145/760)[Kremote: Counting objects:  20% (152/760)[Kremote: Counting objects:  21% (160/760)[Kremote: Counting objects:  22% (168/760)[Kremote: Counting objects:  23% (175/760)[Kremote: Counting objects:  24% (183/760)[Kremote: Counting objects:  25% (190/760)[Kremote: Counting objects:  26% (198/760)[Kremote: Counting objects:  27% (206/760)[Kremote: Counting objects:  28% (213/760)[Kremote: Counting objects:  29% (221/760)[Kremote: Counting objects:  30% (228/760)[Kremote: Counting objects:  31% (236/760)[Kremote: Counting objects:  32% (244/760)[Kremote: Counting objects:  33% (251/760)[Kremote: Counting objects:  34% (259/760)[Kremote: Counting objects:  35% (266/760)[Kremote: Counting objects:  36% (274/760)[Kremote: Counting objects:  37% (282/760)[Kremote: Counting objects:  38% (289/760)[Kremote: Counting objects:  39% (297/760)[Kremote: Counting objects:  40% (304/760)[Kremote: Counting objects:  41% (312/760)[Kremote: Counting objects:  42% (320/760)[Kremote: Counting objects:  43% (327/760)[Kremote: Counting objects:  44% (335/760)[Kremote: Counting objects:  45% (342/760)[Kremote: Counting objects:  46% (350/760)[Kremote: Counting objects:  47% (358/760)[Kremote: Counting objects:  48% (365/760)[Kremote: Counting objects:  49% (373/760)[Kremote: Counting objects:  50% (380/760)[Kremote: Counting objects:  51% (388/760)[Kremote: Counting objects:  52% (396/760)[Kremote: Counting objects:  53% (403/760)[Kremote: Counting objects:  54% (411/760)[Kremote: Counting objects:  55% (418/760)[Kremote: Counting objects:  56% (426/760)[Kremote: Counting objects:  57% (434/760)[Kremote: Counting objects:  58% (441/760)[Kremote: Counting objects:  59% (449/760)[Kremote: Counting objects:  60% (456/760)[Kremote: Counting objects:  61% (464/760)[Kremote: Counting objects:  62% (472/760)[Kremote: Counting objects:  63% (479/760)[Kremote: Counting objects:  64% (487/760)[Kremote: Counting objects:  65% (494/760)[Kremote: Counting objects:  66% (502/760)[Kremote: Counting objects:  67% (510/760)[Kremote: Counting objects:  68% (517/760)[Kremote: Counting objects:  69% (525/760)[Kremote: Counting objects:  70% (532/760)[Kremote: Counting objects:  71% (540/760)[Kremote: Counting objects:  72% (548/760)[Kremote: Counting objects:  73% (555/760)[Kremote: Counting objects:  74% (563/760)[Kremote: Counting objects:  75% (570/760)[Kremote: Counting objects:  76% (578/760)[Kremote: Counting objects:  77% (586/760)[Kremote: Counting objects:  78% (593/760)[Kremote: Counting objects:  79% (601/760)[Kremote: Counting objects:  80% (608/760)[Kremote: Counting objects:  81% (616/760)[Kremote: Counting objects:  82% (624/760)[Kremote: Counting objects:  83% (631/760)[Kremote: Counting objects:  84% (639/760)[Kremote: Counting objects:  85% (646/760)[Kremote: Counting objects:  86% (654/760)[Kremote: Counting objects:  87% (662/760)[Kremote: Counting objects:  88% (669/760)[Kremote: Counting objects:  89% (677/760)[Kremote: Counting objects:  90% (684/760)[Kremote: Counting objects:  91% (692/760)[Kremote: Counting objects:  92% (700/760)[Kremote: Counting objects:  93% (707/760)[Kremote: Counting objects:  94% (715/760)[Kremote: Counting objects:  95% (722/760)[Kremote: Counting objects:  96% (730/760)[Kremote: Counting objects:  97% (738/760)[Kremote: Counting objects:  98% (745/760)[Kremote: Counting objects:  99% (753/760)[Kremote: Counting objects: 100% (760/760)[Kremote: Counting objects: 100% (760/760), done.[K
+remote: Compressing objects:   0% (1/171)[Kremote: Compressing objects:   1% (2/171)[Kremote: Compressing objects:   2% (4/171)[Kremote: Compressing objects:   3% (6/171)[Kremote: Compressing objects:   4% (7/171)[Kremote: Compressing objects:   5% (9/171)[Kremote: Compressing objects:   6% (11/171)[Kremote: Compressing objects:   7% (12/171)[Kremote: Compressing objects:   8% (14/171)[Kremote: Compressing objects:   9% (16/171)[Kremote: Compressing objects:  10% (18/171)[Kremote: Compressing objects:  11% (19/171)[Kremote: Compressing objects:  12% (21/171)[Kremote: Compressing objects:  13% (23/171)[Kremote: Compressing objects:  14% (24/171)[Kremote: Compressing objects:  15% (26/171)[Kremote: Compressing objects:  16% (28/171)[Kremote: Compressing objects:  17% (30/171)[Kremote: Compressing objects:  18% (31/171)[Kremote: Compressing objects:  19% (33/171)[Kremote: Compressing objects:  20% (35/171)[Kremote: Compressing objects:  21% (36/171)[Kremote: Compressing objects:  22% (38/171)[Kremote: Compressing objects:  23% (40/171)[Kremote: Compressing objects:  24% (42/171)[Kremote: Compressing objects:  25% (43/171)[Kremote: Compressing objects:  26% (45/171)[Kremote: Compressing objects:  27% (47/171)[Kremote: Compressing objects:  28% (48/171)[Kremote: Compressing objects:  29% (50/171)[Kremote: Compressing objects:  30% (52/171)[Kremote: Compressing objects:  31% (54/171)[Kremote: Compressing objects:  32% (55/171)[Kremote: Compressing objects:  33% (57/171)[Kremote: Compressing objects:  34% (59/171)[Kremote: Compressing objects:  35% (60/171)[Kremote: Compressing objects:  36% (62/171)[Kremote: Compressing objects:  37% (64/171)[Kremote: Compressing objects:  38% (65/171)[Kremote: Compressing objects:  39% (67/171)[Kremote: Compressing objects:  40% (69/171)[Kremote: Compressing objects:  41% (71/171)[Kremote: Compressing objects:  42% (72/171)[Kremote: Compressing objects:  43% (74/171)[Kremote: Compressing objects:  44% (76/171)[Kremote: Compressing objects:  45% (77/171)[Kremote: Compressing objects:  46% (79/171)[Kremote: Compressing objects:  47% (81/171)[Kremote: Compressing objects:  48% (83/171)[Kremote: Compressing objects:  49% (84/171)[Kremote: Compressing objects:  50% (86/171)[Kremote: Compressing objects:  51% (88/171)[Kremote: Compressing objects:  52% (89/171)[Kremote: Compressing objects:  53% (91/171)[Kremote: Compressing objects:  54% (93/171)[Kremote: Compressing objects:  55% (95/171)[Kremote: Compressing objects:  56% (96/171)[Kremote: Compressing objects:  57% (98/171)[Kremote: Compressing objects:  58% (100/171)[Kremote: Compressing objects:  59% (101/171)[Kremote: Compressing objects:  60% (103/171)[Kremote: Compressing objects:  61% (105/171)[Kremote: Compressing objects:  62% (107/171)[Kremote: Compressing objects:  63% (108/171)[Kremote: Compressing objects:  64% (110/171)[Kremote: Compressing objects:  65% (112/171)[Kremote: Compressing objects:  66% (113/171)[Kremote: Compressing objects:  67% (115/171)[Kremote: Compressing objects:  68% (117/171)[Kremote: Compressing objects:  69% (118/171)[Kremote: Compressing objects:  70% (120/171)[Kremote: Compressing objects:  71% (122/171)[Kremote: Compressing objects:  72% (124/171)[Kremote: Compressing objects:  73% (125/171)[Kremote: Compressing objects:  74% (127/171)[Kremote: Compressing objects:  75% (129/171)[Kremote: Compressing objects:  76% (130/171)[Kremote: Compressing objects:  77% (132/171)[Kremote: Compressing objects:  78% (134/171)[Kremote: Compressing objects:  79% (136/171)[Kremote: Compressing objects:  80% (137/171)[Kremote: Compressing objects:  81% (139/171)[Kremote: Compressing objects:  82% (141/171)[Kremote: Compressing objects:  83% (142/171)[Kremote: Compressing objects:  84% (144/171)[Kremote: Compressing objects:  85% (146/171)[Kremote: Compressing objects:  86% (148/171)[Kremote: Compressing objects:  87% (149/171)[Kremote: Compressing objects:  88% (151/171)[Kremote: Compressing objects:  89% (153/171)[Kremote: Compressing objects:  90% (154/171)[Kremote: Compressing objects:  91% (156/171)[Kremote: Compressing objects:  92% (158/171)[Kremote: Compressing objects:  93% (160/171)[Kremote: Compressing objects:  94% (161/171)[Kremote: Compressing objects:  95% (163/171)[Kremote: Compressing objects:  96% (165/171)[Kremote: Compressing objects:  97% (166/171)[Kremote: Compressing objects:  98% (168/171)[Kremote: Compressing objects:  99% (170/171)[Kremote: Compressing objects: 100% (171/171)[Kremote: Compressing objects: 100% (171/171), done.[K
+Receiving objects:   0% (1/3186)Receiving objects:   1% (32/3186)Receiving objects:   2% (64/3186)Receiving objects:   3% (96/3186)Receiving objects:   4% (128/3186)Receiving objects:   5% (160/3186)Receiving objects:   6% (192/3186)Receiving objects:   7% (224/3186)Receiving objects:   8% (255/3186)Receiving objects:   9% (287/3186)Receiving objects:  10% (319/3186)Receiving objects:  11% (351/3186)Receiving objects:  12% (383/3186)Receiving objects:  13% (415/3186)Receiving objects:  14% (447/3186)Receiving objects:  15% (478/3186)Receiving objects:  16% (510/3186)Receiving objects:  17% (542/3186)Receiving objects:  18% (574/3186)Receiving objects:  19% (606/3186)Receiving objects:  20% (638/3186)Receiving objects:  21% (670/3186)Receiving objects:  22% (701/3186)Receiving objects:  23% (733/3186)Receiving objects:  24% (765/3186)Receiving objects:  25% (797/3186)Receiving objects:  26% (829/3186)Receiving objects:  27% (861/3186)Receiving objects:  28% (893/3186)Receiving objects:  29% (924/3186)Receiving objects:  30% (956/3186)Receiving objects:  31% (988/3186)Receiving objects:  32% (1020/3186)Receiving objects:  33% (1052/3186)Receiving objects:  34% (1084/3186)Receiving objects:  35% (1116/3186)Receiving objects:  36% (1147/3186)Receiving objects:  37% (1179/3186)Receiving objects:  38% (1211/3186)Receiving objects:  39% (1243/3186)Receiving objects:  40% (1275/3186)Receiving objects:  41% (1307/3186)Receiving objects:  42% (1339/3186)Receiving objects:  43% (1370/3186)Receiving objects:  44% (1402/3186)Receiving objects:  45% (1434/3186)Receiving objects:  46% (1466/3186)Receiving objects:  47% (1498/3186)Receiving objects:  48% (1530/3186)Receiving objects:  49% (1562/3186)Receiving objects:  50% (1593/3186)Receiving objects:  51% (1625/3186)Receiving objects:  52% (1657/3186)Receiving objects:  53% (1689/3186)Receiving objects:  54% (1721/3186)Receiving objects:  55% (1753/3186)Receiving objects:  56% (1785/3186)Receiving objects:  57% (1817/3186)Receiving objects:  58% (1848/3186)Receiving objects:  59% (1880/3186)Receiving objects:  60% (1912/3186)Receiving objects:  61% (1944/3186)Receiving objects:  62% (1976/3186)Receiving objects:  63% (2008/3186)Receiving objects:  64% (2040/3186)Receiving objects:  65% (2071/3186)Receiving objects:  66% (2103/3186)Receiving objects:  67% (2135/3186)Receiving objects:  68% (2167/3186)Receiving objects:  69% (2199/3186)Receiving objects:  70% (2231/3186)Receiving objects:  71% (2263/3186)Receiving objects:  72% (2294/3186)Receiving objects:  73% (2326/3186)Receiving objects:  74% (2358/3186)Receiving objects:  75% (2390/3186)Receiving objects:  76% (2422/3186)Receiving objects:  77% (2454/3186)Receiving objects:  78% (2486/3186)Receiving objects:  79% (2517/3186)Receiving objects:  80% (2549/3186)Receiving objects:  81% (2581/3186)Receiving objects:  82% (2613/3186)Receiving objects:  83% (2645/3186)Receiving objects:  84% (2677/3186)Receiving objects:  85% (2709/3186)Receiving objects:  86% (2740/3186)Receiving objects:  87% (2772/3186)Receiving objects:  88% (2804/3186)Receiving objects:  89% (2836/3186)Receiving objects:  90% (2868/3186)Receiving objects:  91% (2900/3186)Receiving objects:  92% (2932/3186)Receiving objects:  93% (2963/3186)Receiving objects:  94% (2995/3186)Receiving objects:  95% (3027/3186)Receiving objects:  96% (3059/3186)Receiving objects:  97% (3091/3186)remote: Total 3186 (delta 631), reused 622 (delta 578), pack-reused 2426 (from 3)[K
+Receiving objects:  98% (3123/3186)Receiving objects:  99% (3155/3186)Receiving objects: 100% (3186/3186)Receiving objects: 100% (3186/3186), 663.34 KiB | 4.74 MiB/s, done.
+Resolving deltas:   0% (0/2128)Resolving deltas:   1% (22/2128)Resolving deltas:   2% (43/2128)Resolving deltas:   3% (64/2128)Resolving deltas:   4% (86/2128)Resolving deltas:   5% (107/2128)Resolving deltas:   6% (129/2128)Resolving deltas:   7% (150/2128)Resolving deltas:   8% (171/2128)Resolving deltas:   9% (193/2128)Resolving deltas:  10% (214/2128)Resolving deltas:  11% (235/2128)Resolving deltas:  12% (256/2128)Resolving deltas:  13% (278/2128)Resolving deltas:  14% (299/2128)Resolving deltas:  15% (320/2128)Resolving deltas:  16% (341/2128)Resolving deltas:  17% (362/2128)Resolving deltas:  18% (384/2128)Resolving deltas:  19% (409/2128)Resolving deltas:  20% (426/2128)Resolving deltas:  21% (447/2128)Resolving deltas:  22% (469/2128)Resolving deltas:  23% (490/2128)Resolving deltas:  24% (511/2128)Resolving deltas:  25% (532/2128)Resolving deltas:  26% (558/2128)Resolving deltas:  27% (575/2128)Resolving deltas:  28% (598/2128)Resolving deltas:  29% (619/2128)Resolving deltas:  30% (645/2128)Resolving deltas:  31% (661/2128)Resolving deltas:  32% (681/2128)Resolving deltas:  33% (705/2128)Resolving deltas:  34% (724/2128)Resolving deltas:  35% (745/2128)Resolving deltas:  36% (769/2128)Resolving deltas:  37% (788/2128)Resolving deltas:  38% (809/2128)Resolving deltas:  39% (832/2128)Resolving deltas:  40% (852/2128)Resolving deltas:  41% (873/2128)Resolving deltas:  42% (894/2128)Resolving deltas:  43% (917/2128)Resolving deltas:  44% (938/2128)Resolving deltas:  45% (958/2128)Resolving deltas:  46% (980/2128)Resolving deltas:  47% (1001/2128)Resolving deltas:  48% (1022/2128)Resolving deltas:  49% (1043/2128)Resolving deltas:  50% (1066/2128)Resolving deltas:  51% (1086/2128)Resolving deltas:  52% (1107/2128)Resolving deltas:  53% (1129/2128)Resolving deltas:  54% (1150/2128)Resolving deltas:  55% (1171/2128)Resolving deltas:  56% (1192/2128)Resolving deltas:  57% (1213/2128)Resolving deltas:  58% (1235/2128)Resolving deltas:  59% (1256/2128)Resolving deltas:  60% (1277/2128)Resolving deltas:  61% (1300/2128)Resolving deltas:  62% (1321/2128)Resolving deltas:  63% (1341/2128)Resolving deltas:  64% (1363/2128)Resolving deltas:  65% (1385/2128)Resolving deltas:  66% (1406/2128)Resolving deltas:  67% (1427/2128)Resolving deltas:  68% (1448/2128)Resolving deltas:  69% (1469/2128)Resolving deltas:  70% (1491/2128)Resolving deltas:  71% (1512/2128)Resolving deltas:  72% (1533/2128)Resolving deltas:  73% (1554/2128)Resolving deltas:  74% (1577/2128)Resolving deltas:  75% (1596/2128)Resolving deltas:  76% (1618/2128)Resolving deltas:  77% (1639/2128)Resolving deltas:  78% (1660/2128)Resolving deltas:  79% (1682/2128)Resolving deltas:  80% (1704/2128)Resolving deltas:  81% (1724/2128)Resolving deltas:  82% (1745/2128)Resolving deltas:  83% (1767/2128)Resolving deltas:  84% (1788/2128)Resolving deltas:  85% (1809/2128)Resolving deltas:  86% (1831/2128)Resolving deltas:  87% (1855/2128)Resolving deltas:  88% (1874/2128)Resolving deltas:  89% (1896/2128)Resolving deltas:  90% (1920/2128)Resolving deltas:  91% (1938/2128)Resolving deltas:  92% (1958/2128)Resolving deltas:  93% (1980/2128)Resolving deltas:  94% (2001/2128)Resolving deltas:  95% (2022/2128)Resolving deltas:  96% (2043/2128)Resolving deltas:  97% (2065/2128)Resolving deltas:  98% (2088/2128)Resolving deltas:  99% (2108/2128)Resolving deltas: 100% (2128/2128)Resolving deltas: 100% (2128/2128), done.
+-----> Plugin dns enabled
+-----> Installing DNS Sync plugin
+-----> DNS Sync plugin installed successfully
+       Use 'dokku dns:configure <service>' to get started
+Adding user dokku to group adm
+-----> Priming bash-completion cache
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Install dns plugin with auto-detection completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Verifying installation...
+[1;33m[COMMAND][0m Running: Verify plugin installation
+[1;33m[COMMAND][0m SSH Command: sudo dokku plugin:list | grep dns
+----------------------------------------
+Command: Verify plugin installation
+SSH Command: sudo dokku plugin:list | grep dns
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+  dns                  0.1.0 enabled    dokku dns synchronization service plugin
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Verify plugin installation completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Checking available dns commands...
+[1;33m[COMMAND][0m Running: List dns commands
+[1;33m[COMMAND][0m SSH Command: sudo dokku help | grep dns
+----------------------------------------
+Command: List dns commands
+SSH Command: sudo dokku help | grep dns
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+    dns           Plugin for managing DNS Sync services
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m List dns commands completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Testing basic command functionality...
+[1;33m[COMMAND][0m Running: Test dns help
+[1;33m[COMMAND][0m SSH Command: sudo dokku dns:help
+----------------------------------------
+Command: Test dns help
+SSH Command: sudo dokku dns:help
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+tput: unknown terminal "xterm-kitty"
+Shared connection to duodeca.local closed.
+[0;31m[ERROR][0m Test dns help failed with exit code 3
+Status: FAILED (exit code: 3)
+[1;33m[WARNING][0m Help command failed, but plugin might still work
+[0;34m[INFO][0m Testing all available DNS commands...
+[0;34m[INFO][0m Testing auto-detection results from installation...
+[1;33m[COMMAND][0m Running: Check auto-detected provider status
+[1;33m[COMMAND][0m SSH Command: sudo dokku dns:report 2>&1 || echo 'No global configuration found'
+----------------------------------------
+Command: Check auto-detected provider status
+SSH Command: sudo dokku dns:report 2>&1 || echo 'No global configuration found'
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+ !     Please specify an app name
+No global configuration found
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Check auto-detected provider status completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Testing provider capabilities...
+[1;33m[COMMAND][0m Running: Check AWS CLI availability
+[1;33m[COMMAND][0m SSH Command: command -v aws && aws sts get-caller-identity >/dev/null 2>&1
+----------------------------------------
+Command: Check AWS CLI availability
+SSH Command: command -v aws && aws sts get-caller-identity >/dev/null 2>&1
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+/usr/local/bin/aws
+Shared connection to duodeca.local closed.
+[0;31m[ERROR][0m Check AWS CLI availability failed with exit code 253
+Status: FAILED (exit code: 253)
+[1;33m[COMMAND][0m Running: Check AWS CLI installation only
+[1;33m[COMMAND][0m SSH Command: command -v aws
+----------------------------------------
+Command: Check AWS CLI installation only
+SSH Command: command -v aws
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+/usr/local/bin/aws
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Check AWS CLI installation only completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m 🔧 AWS CLI is installed but not configured
+[1;33m[COMMAND][0m Running: Test verify with unconfigured AWS
+[1;33m[COMMAND][0m SSH Command: timeout 10s sudo dokku dns:verify < /dev/null 2>&1 || true
+----------------------------------------
+Command: Test verify with unconfigured AWS
+SSH Command: timeout 10s sudo dokku dns:verify < /dev/null 2>&1 || true
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Test verify with unconfigured AWS completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Testing intelligent provider matching system...
+[1;33m[COMMAND][0m Running: Test dns:add command (expects app name)
+[1;33m[COMMAND][0m SSH Command: sudo dokku dns:add 2>&1 || echo 'Shows usage as expected'
+----------------------------------------
+Command: Test dns:add command (expects app name)
+SSH Command: sudo dokku dns:add 2>&1 || echo 'Shows usage as expected'
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+Shows usage as expected
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Test dns:add command (expects app name) completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[1;33m[COMMAND][0m Running: Test dns:sync command (expects app name)
+[1;33m[COMMAND][0m SSH Command: sudo dokku dns:sync 2>&1 || echo 'Shows usage as expected'
+----------------------------------------
+Command: Test dns:sync command (expects app name)
+SSH Command: sudo dokku dns:sync 2>&1 || echo 'Shows usage as expected'
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+ !     Please specify an app name
+Shows usage as expected
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Test dns:sync command (expects app name) completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[1;33m[COMMAND][0m Running: Test dns:verify command
+[1;33m[COMMAND][0m SSH Command: sudo dokku dns:verify 2>&1 || echo 'Verify command completed'
+----------------------------------------
+Command: Test dns:verify command
+SSH Command: sudo dokku dns:verify 2>&1 || echo 'Verify command completed'
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+Verify command completed
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Test dns:verify command completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[1;33m[COMMAND][0m Running: Test dns:configure command
+[1;33m[COMMAND][0m SSH Command: sudo dokku dns:configure 2>&1 || echo 'Configure command available'
+----------------------------------------
+Command: Test dns:configure command
+SSH Command: sudo dokku dns:configure 2>&1 || echo 'Configure command available'
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+=====> DNS Sync configured globally with provider: aws
+-----> Next steps:
+----->   1. Configure credentials: dokku dns:provider-auth
+----->   2. Sync an app: dokku dns:sync <app>
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Test dns:configure command completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Testing provider detection behavior...
+[1;33m[COMMAND][0m Running: Test add with fake app (will show detection logic)
+[1;33m[COMMAND][0m SSH Command: sudo dokku dns:add nonexistent-app fake-domain.com 2>&1 || echo 'Expected to fail - no such app'
+----------------------------------------
+Command: Test add with fake app (will show detection logic)
+SSH Command: sudo dokku dns:add nonexistent-app fake-domain.com 2>&1 || echo 'Expected to fail - no such app'
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+Expected to fail - no such app
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Test add with fake app (will show detection logic) completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Testing with sample app (if available)...
+[1;33m[COMMAND][0m Running: Check for existing apps
+[1;33m[COMMAND][0m SSH Command: sudo dokku apps:list 2>/dev/null || true
+----------------------------------------
+Command: Check for existing apps
+SSH Command: sudo dokku apps:list 2>/dev/null || true
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+=====> My Apps
+controlcopypasta
+core
+ddclient
+dokku-ui
+dot
+gitlab
+gitlab-data
+gitlab-runner
+headless-chrome
+homeassistant
+mealie
+myapp
+nextcloud
+nextcloud-all-in-one
+nextcloud-data
+node-js-example
+penpot
+rails-app
+readeck
+recipe-book
+recipebook
+recipes
+recipes-api
+savepage-server
+transmission
+uptime-kuma
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Check for existing apps completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[1;33m[COMMAND][0m Running: Test report with first app
+[1;33m[COMMAND][0m SSH Command: sudo dokku apps:list 2>/dev/null | head -1 | xargs -r sudo dokku dns:report 2>&1 || true
+----------------------------------------
+Command: Test report with first app
+SSH Command: sudo dokku apps:list 2>/dev/null | head -1 | xargs -r sudo dokku dns:report 2>&1 || true
+Output:
+/home/dean/.bashrc: line 37: syntax error near unexpected token `fi'
+/home/dean/.bashrc: line 37: `fi'
+ !     App =====> does not exist
+Shared connection to duodeca.local closed.
+[0;32m[SUCCESS][0m Test report with first app completed successfully
+Status: SUCCESS
+----------------------------------------
+
+[0;34m[INFO][0m Plugin test completed!
+[0;34m[INFO][0m Log file saved as: test-server-20250801-220641.log
+[1;33m[WARNING][0m Some commands failed - check the log file for details

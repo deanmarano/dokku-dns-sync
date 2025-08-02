@@ -168,10 +168,10 @@ dns_sync_report() {
   dokku_log_info2 "Actions available:"
   if [[ "$PROVIDER" == "None" ]]; then
     dokku_log_info1 "1. Configure DNS provider: dokku $PLUGIN_COMMAND_PREFIX:configure [aws|cloudflare]"
-    dokku_log_info1 "2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+    dokku_log_info1 "2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify"
     dokku_log_info1 "3. Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
   elif [[ "$SYNC_STATUS" == "Missing auth" ]]; then
-    dokku_log_info1 "Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+    dokku_log_info1 "Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify"
     dokku_log_info1 "Then sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
   elif [[ "$SYNC_STATUS" == "Ready" ]]; then
     dokku_log_info1 "Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"

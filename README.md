@@ -17,11 +17,11 @@ sudo dokku plugin:install https://github.com/dokku/dokku-dns.git --name dns
 ## Commands
 
 ```
-dns:add-domains <app>    # add app domains to dns provider for management
+dns:add <app>            # add app domains to dns provider for management
 dns:configure <provider> # configure or change the global dns provider
-dns:provider-auth        # verify provider authentication for dns
 dns:report <app>         # display DNS sync status and domain information for an app
 dns:sync <app>           # synchronize DNS records for app
+dns:verify               # verify DNS provider setup and connectivity
 ```
 
 ## Usage
@@ -34,14 +34,14 @@ Help for any commands can be displayed by specifying the command as an argument 
 
 ```shell
 # usage
-dokku dns:add-domains <app>
+dokku dns:add <app>
 ```
 
 Add app domains to `DNS` provider for management:
 
 ```shell
-dokku dns:add-domains nextcloud
-dokku dns:add-domains nextcloud example.com api.example.com
+dokku dns:add nextcloud
+dokku dns:add nextcloud example.com api.example.com
 ```
 
 By default, adds all domains configured for the app optionally specify specific domains to add to `DNS` management this registers domains with the `DNS` provider but doesn`t sync records yet use `dokku dns:sync` to update `DNS` records:
@@ -59,22 +59,22 @@ Configure the global `DNS` sync provider:
 dokku dns:configure [aws|cloudflare]
 ```
 
-This sets up or changes the `DNS` provider for all `DNS` synchronization. If no provider is specified, defaults to `$DNS_SYNC_DEFAULT_PROVIDER` if provider is already configured, this will change to the new provider after configuration, use other commands to: - configure credentials: dokku dns:provider-auth - sync an app: dokku dns:sync myapp:
+This sets up or changes the `DNS` provider for all `DNS` synchronization. If no provider is specified, defaults to `$DNS_SYNC_DEFAULT_PROVIDER` if provider is already configured, this will change to the new provider after configuration, use other commands to: - configure credentials: dokku dns:verify - sync an app: dokku dns:sync myapp:
 
-### verify provider authentication for dns
+### verify DNS provider setup and connectivity
 
 ```shell
 # usage
-dokku dns:provider-auth
+dokku dns:verify
 ```
 
-Verify provider authentication credentials:
+Verify `DNS` provider setup and connectivity:
 
 ```shell
-dokku dns:provider-auth
+dokku dns:verify
 ```
 
-For `AWS`:` checks if `AWS` `CLI` is configured (use `aws configure` to set up) for Cloudflare: prompts for `CLOUDFLARE_API_TOKEN` and stores securely:
+For `AWS`:` checks if `AWS` `CLI` is configured and tests Route53 access for Cloudflare: prompts for `CLOUDFLARE_API_TOKEN` if not set, then validates access:
 
 ## AWS Setup
 
@@ -151,7 +151,7 @@ You can either:
 After configuring AWS CLI, run:
 
 ```shell
-dokku dns:provider-auth
+dokku dns:verify
 ```
 
 This will:
@@ -162,7 +162,7 @@ This will:
 
 ## Cloudflare Setup
 
-For Cloudflare, the plugin will prompt you for an API token during `dokku dns:provider-auth`.
+For Cloudflare, the plugin will prompt you for an API token during `dokku dns:verify`.
 
 ### Create Cloudflare API Token
 
@@ -177,10 +177,10 @@ For Cloudflare, the plugin will prompt you for an API token during `dokku dns:pr
 
 ### Configure Token
 
-Run the provider auth command and enter your token when prompted:
+Run the verify command and enter your token when prompted:
 
 ```shell
-dokku dns:provider-auth
+dokku dns:verify
 ```
 
 ### display DNS sync status and domain information for an app

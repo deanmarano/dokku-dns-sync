@@ -115,7 +115,13 @@ main() {
     
     # Install the plugin from GitHub
     log "INFO" "Installing dns plugin from GitHub..."
-    run_remote_command "Install dns plugin" "sudo dokku plugin:install $PLUGIN_REPO" || {
+    echo "Expected installation scenarios:"
+    echo "  ✓ Best case: AWS CLI ready → Immediate use"
+    echo "  🔧 Good case: AWS CLI detected → Needs 'aws configure'"
+    echo "  ⚙️ Setup needed: No CLI detected → Manual setup required"
+    echo ""
+    
+    run_remote_command "Install dns plugin with auto-detection" "sudo dokku plugin:install $PLUGIN_REPO" || {
         log "ERROR" "Plugin installation failed"
         exit 1
     }
@@ -140,12 +146,17 @@ main() {
     
     # List all available commands  
     log "INFO" "Testing all available DNS commands..."
-    echo "Available DNS commands (implemented):"
-    echo "  - dns:add-domains    - Add app domains to DNS provider"
-    echo "  - dns:configure      - Configure DNS provider" 
-    echo "  - dns:provider-auth  - Configure provider authentication"
-    echo "  - dns:report         - Show DNS sync status"
-    echo "  - dns:sync           - Sync DNS records"
+    echo "Available DNS commands (implemented with intelligent provider matching):"
+    echo "  - dns:add <app> [domains...]  - Add app domains to DNS (auto-detects providers)"
+    echo "  - dns:sync <app>             - Sync DNS records (multi-provider support)"
+    echo "  - dns:verify                 - Verify DNS provider setup"
+    echo "  - dns:report <app>           - Show DNS sync status"
+    echo "  - dns:configure <provider>   - Configure DNS provider (optional)"
+    echo ""
+    echo "Key improvements:"
+    echo "  ✓ No provider configuration required - auto-detects from hosted zones"
+    echo "  ✓ Multi-provider support - different domains can use different providers"
+    echo "  ✓ Intelligent domain matching - checks AWS Route53, Cloudflare automatically"
     echo ""
     echo "Available DNS commands (unimplemented/inherited):"
     echo "  - dns:app-links, dns:backup*, dns:clone, dns:connect, dns:destroy"
@@ -155,36 +166,58 @@ main() {
     echo "  - dns:start, dns:stop, dns:unexpose, dns:unlink, dns:upgrade"
     echo ""
     
-    # Test global configuration
-    log "INFO" "Testing DNS provider configuration..."
+    # Test auto-detection results
+    log "INFO" "Testing auto-detection results from installation..."
     
-    if run_remote_command "Configure DNS sync with AWS provider" "sudo dokku dns:configure aws"; then
-        log "SUCCESS" "DNS provider configuration successful"
+    # Check what provider was auto-detected
+    run_remote_command "Check auto-detected provider status" "sudo dokku dns:report 2>&1 || echo 'No global configuration found'"
+    echo ""
+    
+    # Test provider capabilities based on what was detected
+    log "INFO" "Testing provider capabilities..."
+    
+    # Check if AWS CLI is available and configured
+    if run_remote_command "Check AWS CLI availability" "command -v aws && aws sts get-caller-identity >/dev/null 2>&1"; then
+        log "SUCCESS" "✓ AWS CLI is installed and configured - should be ready to use"
         
-        # Test provider-auth command (will fail without input, but should show it's working)
-        run_remote_command "Test provider-auth command availability" "timeout 5s sudo dokku dns:provider-auth < /dev/null || true" || {
-            log "INFO" "Provider-auth command timed out as expected (requires interactive input)"
-        }
+        # Test Route53 permissions
+        run_remote_command "Test Route53 permissions" "aws route53 list-hosted-zones >/dev/null 2>&1 && echo 'Route53 access confirmed' || echo 'Route53 access limited'"
         
-        # Test report command without specific app
-        run_remote_command "Test global report command" "sudo dokku dns:report || true" || {
-            log "INFO" "Report command completed (may show no apps configured)"
-        }
+        # Test verify (should succeed)
+        run_remote_command "Test verify with working AWS" "sudo dokku dns:verify 2>&1 || true"
         
-        # Test add-domains command (will fail without app, but should show usage)
-        run_remote_command "Test add-domains command availability" "sudo dokku dns:add-domains 2>&1 || true" || {
-            log "INFO" "Add-domains command available (shows usage when no app specified)"
-        }
+    elif run_remote_command "Check AWS CLI installation only" "command -v aws"; then
+        log "INFO" "🔧 AWS CLI is installed but not configured"
         
-        # Test sync command (will fail without app, but should show usage)  
-        run_remote_command "Test sync command availability" "sudo dokku dns:sync 2>&1 || true" || {
-            log "INFO" "Sync command available (shows usage when no app specified)"
-        }
+        # Test verify (should show configuration instructions)
+        run_remote_command "Test verify with unconfigured AWS" "timeout 10s sudo dokku dns:verify < /dev/null 2>&1 || true"
         
     else
-        log "ERROR" "DNS provider configuration failed"
+        log "INFO" "⚙️ AWS CLI not installed - manual setup required"
+        
+        # Test what happens when no CLI is available
+        run_remote_command "Test commands without CLI" "sudo dokku dns:verify 2>&1 || true"
     fi
     echo ""
+    
+    # Test intelligent provider matching system
+    log "INFO" "Testing intelligent provider matching system..."
+    
+    # Test add command behavior (should auto-detect providers)
+    run_remote_command "Test dns:add command (expects app name)" "sudo dokku dns:add 2>&1 || echo 'Shows usage as expected'"
+    
+    # Test sync command behavior (should auto-detect providers)  
+    run_remote_command "Test dns:sync command (expects app name)" "sudo dokku dns:sync 2>&1 || echo 'Shows usage as expected'"
+    
+    # Test verify command (diagnostic tool)
+    run_remote_command "Test dns:verify command" "sudo dokku dns:verify 2>&1 || echo 'Verify command completed'"
+    
+    # Test configure command (optional now)
+    run_remote_command "Test dns:configure command" "sudo dokku dns:configure 2>&1 || echo 'Configure command available'"
+    
+    # Test with hypothetical domains to see provider detection
+    log "INFO" "Testing provider detection behavior..."
+    run_remote_command "Test add with fake app (will show detection logic)" "sudo dokku dns:add nonexistent-app fake-domain.com 2>&1 || echo 'Expected to fail - no such app'"
     
     # Test with a sample app if it exists
     log "INFO" "Testing with sample app (if available)..."
@@ -212,22 +245,42 @@ main() {
     fi
     
     echo ""
-    log "INFO" "You can now test the plugin manually with:"
+    log "INFO" "Manual testing guide based on auto-detection results:"
     echo "  ssh $SSH_USER@$SERVER_HOST"
     echo ""
-    echo "Basic DNS setup commands:"
-    echo "  sudo dokku dns:configure aws                    # Configure AWS as DNS provider"
-    echo "  sudo dokku dns:configure cloudflare             # Configure Cloudflare as DNS provider" 
-    echo "  sudo dokku dns:provider-auth                    # Set up provider credentials"
+    
+    # Provide scenario-specific instructions
+    echo "📋 Testing scenarios with intelligent provider matching:"
     echo ""
-    echo "App-specific DNS commands:"
-    echo "  sudo dokku dns:add-domains myapp                # Add all app domains to DNS"
-    echo "  sudo dokku dns:add-domains myapp example.com    # Add specific domain to DNS"
-    echo "  sudo dokku dns:sync myapp                       # Sync DNS records for app"
-    echo "  sudo dokku dns:report myapp                     # Show DNS status for app"
+    echo "🚀 SCENARIO 1: AWS CLI Ready + Hosted Zones (Best case)"
+    echo "  If you saw: '✓ AWS CLI configured' and 'Route53 access confirmed'"
+    echo "  Test with real domains that have hosted zones:"
+    echo "    sudo dokku domains:add myapp yourdomain.com   # Add domain to app first"
+    echo "    sudo dokku dns:add myapp                      # Auto-detects AWS provider"
+    echo "    sudo dokku dns:sync myapp                     # Syncs to Route53 automatically"
     echo ""
-    echo "Global commands:"
-    echo "  sudo dokku dns:report                           # Show global DNS configuration"
+    echo "🔧 SCENARIO 2: AWS CLI Ready but No Hosted Zones"
+    echo "  Commands will work but show 'no provider found for domains'"
+    echo "  Create hosted zones in Route53 first:"
+    echo "    aws route53 create-hosted-zone --name yourdomain.com --caller-reference \$(date +%s)"
+    echo "    sudo dokku dns:add myapp yourdomain.com       # Will now detect AWS"
+    echo ""
+    echo "⚙️ SCENARIO 3: No CLI Tools / Not Configured"
+    echo "  Setup AWS CLI:"
+    echo "    sudo apt update && sudo apt install awscli    # Install CLI"
+    echo "    aws configure                                 # Configure credentials"
+    echo "    # Create hosted zones in Route53"
+    echo "    sudo dokku dns:add myapp                      # Will auto-detect"
+    echo ""
+    echo "🔍 Multi-Provider Scenario:"
+    echo "  If you have domains in both AWS Route53 and Cloudflare:"
+    echo "    sudo dokku dns:sync myapp                     # Automatically uses:"
+    echo "    # → AWS for domains with Route53 hosted zones"
+    echo "    # → Cloudflare for domains with Cloudflare zones"
+    echo ""
+    echo "📊 Diagnostic commands:"
+    echo "  sudo dokku dns:verify                           # Test provider access"
+    echo "  sudo dokku dns:report myapp                     # Show domain → provider mapping"
 }
 
 # Check if script is being sourced or executed

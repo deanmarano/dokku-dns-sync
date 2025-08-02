@@ -62,13 +62,13 @@ service_configure() {
   if [[ -n "$BACKEND" ]]; then
     dokku_log_info2 "Backend set to: $BACKEND"
     dokku_log_info1 "Next steps:"
-    dokku_log_info1 "  1. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
+    dokku_log_info1 "  1. Verify setup: dokku $PLUGIN_COMMAND_PREFIX:verify"
     dokku_log_info1 "  2. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
     dokku_log_info1 "  3. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
   else
     dokku_log_info1 "Next steps:"
     dokku_log_info1 "  1. Set DNS backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <aws|cloudflare>"
-    dokku_log_info1 "  2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:backend-auth $SERVICE"
+    dokku_log_info1 "  2. Verify setup: dokku $PLUGIN_COMMAND_PREFIX:verify"
     dokku_log_info1 "  3. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
     dokku_log_info1 "  4. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
   fi
@@ -375,42 +375,214 @@ dns_configure_global() {
   
   dokku_log_info2 "DNS Sync configured globally with provider: $PROVIDER"
   dokku_log_info1 "Next steps:"
-  dokku_log_info1 "  1. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+  dokku_log_info1 "  1. Verify setup: dokku $PLUGIN_COMMAND_PREFIX:verify"
   dokku_log_info1 "  2. Sync an app: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+}
+
+dns_find_provider_for_domain() {
+  local DOMAIN="$1"
+  local PROVIDERS=()
+  
+  # Check AWS Route53
+  if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
+    # Load AWS provider to use its functions
+    local AWS_PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/aws"
+    if [[ -f "$AWS_PROVIDER_SCRIPT" ]]; then
+      source "$AWS_PROVIDER_SCRIPT"
+      if dns_provider_aws_get_hosted_zone_id "$DOMAIN" >/dev/null 2>&1; then
+        PROVIDERS+=("aws")
+      fi
+    fi
+  fi
+  
+  # Check Cloudflare (TODO: implement when Cloudflare provider is ready)
+  # if command -v flarectl >/dev/null 2>&1; then
+  #   # Check if domain exists in Cloudflare
+  #   PROVIDERS+=("cloudflare")
+  # fi
+  
+  # Return the first provider that can manage this domain
+  if [[ ${#PROVIDERS[@]} -gt 0 ]]; then
+    echo "${PROVIDERS[0]}"
+    return 0
+  fi
+  
+  return 1
+}
+
+dns_match_domains_to_providers() {
+  local DOMAINS=("$@")
+  declare -A DOMAIN_PROVIDERS
+  local UNMATCHED_DOMAINS=()
+  
+  for domain in "${DOMAINS[@]}"; do
+    local provider
+    if provider=$(dns_find_provider_for_domain "$domain"); then
+      DOMAIN_PROVIDERS["$domain"]="$provider"
+      dokku_log_info2 "Domain '$domain' → $provider provider"
+    else
+      UNMATCHED_DOMAINS+=("$domain")
+      dokku_log_info2 "Domain '$domain' → no provider found"
+    fi
+  done
+  
+  # Export the associative array for use by caller
+  for domain in "${!DOMAIN_PROVIDERS[@]}"; do
+    echo "$domain:${DOMAIN_PROVIDERS[$domain]}"
+  done
+  
+  # Warn about unmatched domains
+  if [[ ${#UNMATCHED_DOMAINS[@]} -gt 0 ]]; then
+    dokku_log_warn "No DNS provider found for domains: ${UNMATCHED_DOMAINS[*]}"
+    dokku_log_warn "Make sure these domains have hosted zones in AWS Route53 or Cloudflare"
+  fi
+}
+
+dns_auto_detect_provider() {
+  local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
+  local DETECTED_PROVIDERS=()
+  local CONFIGURED_PROVIDER=""
+  
+  # Check for AWS CLI
+  if command -v aws >/dev/null 2>&1; then
+    DETECTED_PROVIDERS+=("aws")
+    
+    if aws sts get-caller-identity >/dev/null 2>&1; then
+      # Test Route53 access
+      if aws route53 list-hosted-zones >/dev/null 2>&1; then
+        CONFIGURED_PROVIDER="aws"
+      fi
+    fi
+  fi
+  
+  # Check for Cloudflare CLI (flarectl)
+  if command -v flarectl >/dev/null 2>&1; then
+    DETECTED_PROVIDERS+=("cloudflare")
+  fi
+  
+  # Set provider based on detection
+  if [[ -n "$CONFIGURED_PROVIDER" ]]; then
+    echo "$CONFIGURED_PROVIDER" > "$PROVIDER_FILE"
+    dokku_log_info1 "Auto-detected and configured $CONFIGURED_PROVIDER as DNS provider"
+    echo "$CONFIGURED_PROVIDER"
+    return 0
+  elif [[ ${#DETECTED_PROVIDERS[@]} -eq 1 ]]; then
+    echo "${DETECTED_PROVIDERS[0]}" > "$PROVIDER_FILE"
+    dokku_log_info1 "Auto-detected ${DETECTED_PROVIDERS[0]} as DNS provider (configuration may be needed)"
+    echo "${DETECTED_PROVIDERS[0]}"
+    return 0
+  elif [[ ${#DETECTED_PROVIDERS[@]} -gt 1 ]]; then
+    dokku_log_fail "Multiple DNS providers detected: ${DETECTED_PROVIDERS[*]}. Choose one: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  else
+    dokku_log_fail "No DNS provider CLI tools detected. Install AWS CLI or Cloudflare CLI, then try again."
+  fi
+  
+  return 1
 }
 
 dns_sync_app() {
   local APP="$1"
-  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
-  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
-  if [[ ! -f "$PROVIDER_FILE" ]]; then
-    dokku_log_fail "DNS sync not configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  dokku_log_info2 "Syncing DNS for app: $APP"
+  
+  # Get all domains for the app
+  local APP_DOMAINS
+  mapfile -t APP_DOMAINS < <(get_app_domains "$APP")
+  
+  if [[ ${#APP_DOMAINS[@]} -eq 0 ]]; then
+    dokku_log_warn "No domains found for app: $APP"
+    dokku_log_info1 "Add domains first with: dokku domains:add $APP <domain>"
+    return 0
   fi
   
-  local PROVIDER
-  PROVIDER="$(cat "$PROVIDER_FILE")"
+  dokku_log_info1 "Found ${#APP_DOMAINS[@]} domains for app '$APP': ${APP_DOMAINS[*]}"
   
-  if [[ -z "$PROVIDER" ]]; then
-    dokku_log_fail "Provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  # Match domains to providers
+  local DOMAIN_PROVIDER_MAPPINGS
+  mapfile -t DOMAIN_PROVIDER_MAPPINGS < <(dns_match_domains_to_providers "${APP_DOMAINS[@]}")
+  
+  if [[ ${#DOMAIN_PROVIDER_MAPPINGS[@]} -eq 0 ]]; then
+    dokku_log_fail "No DNS providers found for any domains. Make sure domains have hosted zones in AWS Route53 or Cloudflare."
   fi
   
-  # Load the provider
-  local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
-  if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
-    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
+  # Group domains by provider
+  declare -A PROVIDER_DOMAINS
+  for mapping in "${DOMAIN_PROVIDER_MAPPINGS[@]}"; do
+    local domain="${mapping%:*}"
+    local provider="${mapping#*:}"
+    
+    if [[ -z "${PROVIDER_DOMAINS[$provider]}" ]]; then
+      PROVIDER_DOMAINS[$provider]="$domain"
+    else
+      PROVIDER_DOMAINS[$provider]="${PROVIDER_DOMAINS[$provider]} $domain"
+    fi
+  done
+  
+  # Get the server's IP for DNS records
+  local SERVER_IP
+  SERVER_IP=$(dns_get_server_ip "$APP")
+  
+  # Sync domains for each provider
+  for provider in "${!PROVIDER_DOMAINS[@]}"; do
+    local domains=(${PROVIDER_DOMAINS[$provider]})
+    dokku_log_info1 "Syncing ${#domains[@]} domains with $provider provider"
+    
+    # Load the provider
+    local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$provider"
+    if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
+      dokku_log_warn "Provider '$provider' script not found, skipping domains: ${domains[*]}"
+      continue
+    fi
+    
+    source "$PROVIDER_SCRIPT"
+    
+    # Validate provider credentials
+    if ! "dns_provider_${provider}_validate_credentials"; then
+      dokku_log_warn "Provider '$provider' credentials invalid, skipping domains: ${domains[*]}"
+      continue
+    fi
+    
+    "dns_provider_${provider}_setup_env"
+    
+    # Sync each domain
+    for domain in "${domains[@]}"; do
+      dokku_log_info2 "Syncing domain: $domain → $SERVER_IP"
+      if "dns_provider_${provider}_create_record" "$domain" "A" "$SERVER_IP"; then
+        dokku_log_info1 "✓ $domain synced successfully"
+      else
+        dokku_log_warn "✗ Failed to sync $domain"
+      fi
+    done
+  done
+  
+  dokku_log_info2 "DNS sync completed for app: $APP"
+}
+
+dns_get_server_ip() {
+  local APP="$1"
+  local SERVER_IP=""
+  
+  # Try to get the server's IP from global domains first
+  local GLOBAL_DOMAINS
+  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null)
+  
+  if [[ -n "$GLOBAL_DOMAINS" ]]; then
+    # Use the first global domain to resolve server IP
+    local FIRST_GLOBAL_DOMAIN
+    FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
+    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1)
   fi
   
-  source "$PROVIDER_SCRIPT"
-  
-  dokku_log_info2 "Syncing DNS for app: $APP using $PROVIDER provider"
-  
-  # Call provider-specific sync function for the app
-  if declare -f "dns_provider_${PROVIDER}_sync_app" >/dev/null; then
-    "dns_provider_${PROVIDER}_sync_app" "" "$APP"
-  else
-    dokku_log_fail "Provider $PROVIDER does not support app syncing"
+  # If no global domains or couldn't resolve, try to get server's public IP
+  if [[ -z "$SERVER_IP" ]]; then
+    SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || curl -s --max-time 5 ipecho.net/plain 2>/dev/null || curl -s --max-time 5 icanhazip.com 2>/dev/null)
   fi
+  
+  if [[ -z "$SERVER_IP" ]]; then
+    dokku_log_fail "Could not determine server IP. Please ensure your server has internet access or configure global domains."
+  fi
+  
+  echo "$SERVER_IP"
 }
 
 get_app_domains() {
@@ -431,30 +603,22 @@ dns_add_app_domains() {
   local APP="$1"
   shift 1
   local DOMAINS=("$@")
-  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
-  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
-  if [[ ! -f "$PROVIDER_FILE" ]]; then
-    dokku_log_fail "DNS sync not configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  dokku_log_info2 "Adding domains to DNS management for app: $APP"
+  
+  # Get all app domains if none specified
+  if [[ ${#DOMAINS[@]} -eq 0 ]]; then
+    mapfile -t DOMAINS < <(get_app_domains "$APP")
+    if [[ ${#DOMAINS[@]} -eq 0 ]]; then
+      dokku_log_fail "No domains found for app '$APP'. Add domains first with: dokku domains:add $APP <domain>"
+    fi
+    dokku_log_info1 "Adding all domains for app '$APP': ${DOMAINS[*]}"
+  else
+    dokku_log_info1 "Adding specified domains for app '$APP': ${DOMAINS[*]}"
   fi
   
-  local PROVIDER
-  PROVIDER="$(cat "$PROVIDER_FILE")"
-  
-  if [[ -z "$PROVIDER" ]]; then
-    dokku_log_fail "Provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
-  fi
-  
-  # Load the provider
-  local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
-  if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
-    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
-  fi
-  
-  source "$PROVIDER_SCRIPT"
-  
-  # Store domains for this app
-  local APP_DOMAINS_DIR="$GLOBAL_CONFIG_ROOT/apps/$APP"
+  # Store domains for this app (this is mainly for tracking/reporting purposes)
+  local APP_DOMAINS_DIR="$PLUGIN_DATA_ROOT/apps/$APP"
   mkdir -p "$APP_DOMAINS_DIR"
   local DOMAINS_FILE="$APP_DOMAINS_DIR/DOMAINS"
   
@@ -462,16 +626,16 @@ dns_add_app_domains() {
   for domain in "${DOMAINS[@]}"; do
     if ! grep -q "^$domain$" "$DOMAINS_FILE" 2>/dev/null; then
       echo "$domain" >> "$DOMAINS_FILE"
-      dokku_log_info2 "Added domain '$domain' to app '$APP'"
+      dokku_log_info2 "✓ Registered domain '$domain' for DNS management"
     else
-      dokku_log_info2 "Domain '$domain' already managed for app '$APP'"
+      dokku_log_info2 "Domain '$domain' already registered for DNS management"
     fi
   done
   
-  # Call provider-specific add domains function if available
-  if declare -f "dns_provider_${PROVIDER}_add_domains" >/dev/null; then
-    "dns_provider_${PROVIDER}_add_domains" "" "$APP" "${DOMAINS[@]}"
-  else
-    dokku_log_info1 "Domains registered locally. Provider '$PROVIDER' will manage them during sync."
-  fi
+  # Show which providers can manage these domains
+  dokku_log_info1 "Checking which DNS providers can manage these domains..."
+  dns_match_domains_to_providers "${DOMAINS[@]}" >/dev/null
+  
+  dokku_log_info2 "Domains registered for DNS management"
+  dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
 }

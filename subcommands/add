@@ -5,10 +5,10 @@ set -eo pipefail
 source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
-service-add-domains-cmd() {
+service-add-cmd() {
   #E add app domains to DNS provider for management
-  #E dokku $PLUGIN_COMMAND_PREFIX:add-domains nextcloud
-  #E dokku $PLUGIN_COMMAND_PREFIX:add-domains nextcloud example.com api.example.com
+  #E dokku $PLUGIN_COMMAND_PREFIX:add nextcloud
+  #E dokku $PLUGIN_COMMAND_PREFIX:add nextcloud example.com api.example.com
   #E by default, adds all domains configured for the app
   #E optionally specify specific domains to add to DNS management
   #E this registers domains with the DNS provider but doesn't sync records yet
@@ -16,7 +16,7 @@ service-add-domains-cmd() {
   #A app, app to add domains for
   #A domains, specific domains to add (optional, defaults to all app domains)
   declare desc="add app domains to $PLUGIN_SERVICE provider for management"
-  local cmd="$PLUGIN_COMMAND_PREFIX:add-domains" argv=("$@")
+  local cmd="$PLUGIN_COMMAND_PREFIX:add" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
   declare APP="$1"
   shift 1
@@ -39,4 +39,4 @@ service-add-domains-cmd() {
   dns_add_app_domains "$APP" "${DOMAINS[@]}"
 }
 
-service-add-domains-cmd "$@"
+service-add-cmd "$@"

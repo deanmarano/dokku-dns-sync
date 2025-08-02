@@ -6,14 +6,14 @@ dns_provider_aws_validate_credentials() {
   if ! command -v aws >/dev/null 2>&1; then
     dokku_log_fail "AWS CLI is not installed. Please install aws-cli to use AWS Route53 provider.
     
-Run: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+Run: dokku $PLUGIN_COMMAND_PREFIX:verify"
   fi
 
   # Check if AWS CLI is configured and working
   if ! aws sts get-caller-identity >/dev/null 2>&1; then
     dokku_log_fail "AWS CLI is not configured or credentials are invalid.
     
-Run: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+Run: dokku $PLUGIN_COMMAND_PREFIX:verify"
   fi
 
   return 0

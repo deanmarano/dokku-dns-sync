@@ -5,6 +5,69 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
 
+detect_and_configure_provider() {
+  local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
+  local DETECTED_PROVIDERS=()
+  local CONFIGURED_PROVIDER=""
+  
+  # Ensure the data directory exists
+  mkdir -p "$PLUGIN_DATA_ROOT" >/dev/null 2>&1 || true
+  
+  # Check for AWS CLI
+  if command -v aws >/dev/null 2>&1; then
+    echo "       ✓ AWS CLI detected"
+    DETECTED_PROVIDERS+=("aws")
+    
+    if aws sts get-caller-identity >/dev/null 2>&1; then
+      echo "       ✓ AWS CLI is configured and authenticated"
+      
+      # Test Route53 access
+      if aws route53 list-hosted-zones >/dev/null 2>&1; then
+        echo "       ✓ Route53 access confirmed"
+        local ZONE_COUNT=$(aws route53 list-hosted-zones --query 'length(HostedZones)' --output text 2>/dev/null || echo "0")
+        echo "       → Found $ZONE_COUNT hosted zones"
+        CONFIGURED_PROVIDER="aws"
+      else
+        echo "       ⚠ Route53 access limited (missing permissions)"
+        echo "         Required permissions: route53:ListHostedZones, route53:ChangeResourceRecordSets"
+      fi
+    else
+      echo "       ⚠ AWS CLI detected but not configured"
+      echo "         Run: aws configure"
+    fi
+  else
+    echo "       - AWS CLI not installed"
+  fi
+  
+  # Check for Cloudflare CLI (flarectl)
+  if command -v flarectl >/dev/null 2>&1; then
+    echo "       ✓ Cloudflare CLI (flarectl) detected"
+    echo "       → Cloudflare support available (requires API token configuration)"
+    DETECTED_PROVIDERS+=("cloudflare")
+  else
+    echo "       - Cloudflare CLI not installed"
+  fi
+  
+  # Set default provider based on detection
+  if [[ -n "$CONFIGURED_PROVIDER" ]]; then
+    echo "       → Setting $CONFIGURED_PROVIDER as default DNS provider (fully configured)"
+    echo "$CONFIGURED_PROVIDER" > "$PROVIDER_FILE" 2>/dev/null || true
+    return 0
+  elif [[ ${#DETECTED_PROVIDERS[@]} -eq 1 ]]; then
+    echo "       → Setting ${DETECTED_PROVIDERS[0]} as default DNS provider (requires configuration)"
+    echo "${DETECTED_PROVIDERS[0]}" > "$PROVIDER_FILE" 2>/dev/null || true
+    return 1  # Still needs configuration
+  elif [[ ${#DETECTED_PROVIDERS[@]} -gt 1 ]]; then
+    echo "       → Multiple providers detected: ${DETECTED_PROVIDERS[*]}"
+    echo "         Choose one: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+    return 1
+  else
+    echo "       → No DNS provider CLI tools detected"
+    echo "         Install AWS CLI or Cloudflare CLI first"
+    return 1
+  fi
+}
+
 plugin-install() {
   echo "-----> Installing $PLUGIN_SERVICE plugin"
   
@@ -19,8 +82,56 @@ plugin-install() {
   mkdir -p "$PLUGIN_CONFIG_ROOT" || echo "Failed to create $PLUGIN_SERVICE config directory"
   chown "${DOKKU_SYSTEM_USER}:${DOKKU_SYSTEM_GROUP}" "$PLUGIN_CONFIG_ROOT"
 
-  echo "-----> $PLUGIN_SERVICE plugin installed successfully"
-  echo "       Use 'dokku $PLUGIN_COMMAND_PREFIX:configure <service>' to get started"
+  # Auto-detect and configure DNS provider
+  echo "-----> Auto-detecting DNS provider capabilities..."
+  local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
+  if detect_and_configure_provider 2>&1; then
+    echo "-----> $PLUGIN_SERVICE plugin installed and configured successfully"
+    echo ""
+    echo "🚀 Ready to use! Quick start:"
+    echo "  dokku $PLUGIN_COMMAND_PREFIX:add <app>     # Add app domains to DNS"
+    echo "  dokku $PLUGIN_COMMAND_PREFIX:sync <app>            # Sync DNS records"
+    echo "  dokku $PLUGIN_COMMAND_PREFIX:report <app>          # Check DNS status"
+  else
+    echo "-----> $PLUGIN_SERVICE plugin installed successfully"
+    echo ""
+    
+    # Check if a provider was set automatically  
+    if [[ -f "$PROVIDER_FILE" ]]; then
+      local SET_PROVIDER=$(cat "$PROVIDER_FILE" 2>/dev/null || echo "")
+      if [[ -n "$SET_PROVIDER" ]]; then
+        echo "🔧 Provider '$SET_PROVIDER' detected and set as default"
+        echo ""
+        echo "Next steps:"
+        case "$SET_PROVIDER" in
+          aws)
+            echo "  1. Configure AWS CLI: aws configure"
+            echo "  2. Verify access: dokku $PLUGIN_COMMAND_PREFIX:verify"
+            ;;
+          cloudflare)
+            echo "  1. Get API token from: https://dash.cloudflare.com/profile/api-tokens"
+            echo "  2. Configure token: dokku $PLUGIN_COMMAND_PREFIX:verify"
+            ;;
+        esac
+        echo "  3. Add domains: dokku $PLUGIN_COMMAND_PREFIX:add <app>"
+        echo "  4. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+      else
+        echo "⚙️  Manual setup required:"
+        echo "  1. Install and configure a DNS provider CLI:"
+        echo "     - AWS: install awscli, then 'aws configure'"
+        echo "     - Cloudflare: install flarectl and get API token"
+        echo "  2. Configure provider: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+        echo "  3. Verify access: dokku $PLUGIN_COMMAND_PREFIX:verify"
+      fi
+    else
+      echo "⚙️  Manual setup required:"
+      echo "  1. Install and configure a DNS provider CLI:"
+      echo "     - AWS: install awscli, then 'aws configure'"  
+      echo "     - Cloudflare: install flarectl and get API token"
+      echo "  2. Configure provider: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+      echo "  3. Verify access: dokku $PLUGIN_COMMAND_PREFIX:verify"
+    fi
+  fi
 }
 
 plugin-install "$@"

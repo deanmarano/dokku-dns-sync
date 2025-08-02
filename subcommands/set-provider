@@ -52,10 +52,10 @@ service-set-provider-cmd() {
     
     if [[ "$CREDENTIALS_VALID" == "false" ]]; then
       if [[ "$PROVIDER" == "aws" ]]; then
-        dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+        dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:verify"
         dokku_log_info1 "You'll need: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION"
       elif [[ "$PROVIDER" == "cloudflare" ]]; then
-        dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+        dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:verify"
         dokku_log_info1 "You'll need: Cloudflare API token"
       fi
     fi

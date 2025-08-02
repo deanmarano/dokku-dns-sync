@@ -12,7 +12,7 @@ service-configure-cmd() {
   #E if no provider is specified, defaults to '$DNS_SYNC_DEFAULT_PROVIDER'
   #E if provider is already configured, this will change to the new provider
   #E after configuration, use other commands to:
-  #E - configure credentials: dokku $PLUGIN_COMMAND_PREFIX:provider-auth
+  #E - configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify
   #E - sync an app: dokku $PLUGIN_COMMAND_PREFIX:sync myapp
   #A provider, DNS provider (aws, cloudflare) - optional, defaults to aws
   declare desc="configure or change the global $PLUGIN_SERVICE provider"
@@ -46,7 +46,7 @@ service-configure-cmd() {
   # Show if changing provider
   if [[ -n "$CURRENT_PROVIDER" ]] && [[ "$CURRENT_PROVIDER" != "$PROVIDER" ]]; then
     dokku_log_info1 "Changing DNS provider from '$CURRENT_PROVIDER' to '$PROVIDER'"
-    dokku_log_info1 "You may need to reconfigure credentials with: dokku $PLUGIN_COMMAND_PREFIX:provider-auth"
+    dokku_log_info1 "You may need to reconfigure credentials with: dokku $PLUGIN_COMMAND_PREFIX:verify"
   fi
   
   dns_configure_global "$PROVIDER"
