@@ -12,7 +12,8 @@
       "Bash(./test-docker-quick.sh:*)",
       "Bash(bash:*)",
       "Bash(chmod:*)",
-      "Bash(./test-fixes.sh:*)"
+      "Bash(./test-fixes.sh:*)",
+      "Bash(./test-docker-local.sh:*)"
     ],
     "deny": []
   }

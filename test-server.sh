@@ -273,7 +273,7 @@ sudo dokku domains:add "${TEST_APP}" "api.test.example.com" 2>&1 || echo "Domain
 echo "Current domains for ${TEST_APP}:"
 sudo dokku domains:report "${TEST_APP}" 2>&1 || echo "Could not get domain report"
 
-# Test the 6 implemented DNS commands
+# Test the 7 implemented DNS commands
 log_remote "INFO" "Testing implemented DNS commands..."
 
 echo "1. Testing dns:help"
@@ -295,6 +295,9 @@ echo "4. Testing dns:add $TEST_APP (add app domains to DNS management)"
 echo "   This should show the new domain status table with hosted zones!"
 sudo dokku dns:add "$TEST_APP" 2>&1 || echo "Add command completed"
 
+echo "4a. Testing dns:report $TEST_APP after adding (should show 'DNS Status: Added')"
+sudo dokku dns:report "$TEST_APP" 2>&1 || echo "Report after add completed"
+
 echo "5. Testing dns:sync $TEST_APP (synchronize DNS records for app)"
 sudo dokku dns:sync "$TEST_APP" 2>&1 || echo "Sync command completed"
 
@@ -304,22 +307,34 @@ sudo dokku dns:report 2>&1 || echo "Global report command completed"
 echo "7. Testing dns:report $TEST_APP (app-specific DNS status and domain info)"
 sudo dokku dns:report "$TEST_APP" 2>&1 || echo "App report command completed"
 
-echo "8. Testing dns:verify again (should show updated status after configuration)"
+echo "8. Testing dns:remove $TEST_APP (remove app from DNS management)"
+sudo dokku dns:remove "$TEST_APP" 2>&1 || echo "Remove command completed"
+
+echo "8a. Testing dns:report $TEST_APP after removal (should show 'DNS Status: Not added')"
+sudo dokku dns:report "$TEST_APP" 2>&1 || echo "Report after remove completed"
+
+echo "8b. Testing global dns:report after removal (should not show $TEST_APP)"
+sudo dokku dns:report 2>&1 || echo "Global report after remove completed"
+
+echo "9. Testing dns:verify again (should show updated status after configuration)"
 sudo dokku dns:verify 2>&1 || echo "Verify command completed"
 
 # Test cleanup and edge cases
-echo "9. Testing edge cases and error handling..."
+echo "10. Testing edge cases and error handling..."
 echo "   Testing dns:add without arguments (should show usage):"
 sudo dokku dns:add 2>&1 || echo "Add command shows usage as expected"
 
 echo "   Testing dns:sync without arguments (should show usage):"
 sudo dokku dns:sync 2>&1 || echo "Sync command shows usage as expected"
 
+echo "   Testing dns:remove without arguments (should show usage):"
+sudo dokku dns:remove 2>&1 || echo "Remove command shows usage as expected"
+
 echo "   Testing dns:report with nonexistent app:"
 sudo dokku dns:report nonexistent-test-app 2>&1 || echo "App report shows error as expected"
 
 # Cleanup test app if we created it for testing  
-echo "10. Cleanup test resources..."
+echo "11. Cleanup test resources..."
 echo "    Removing test domains from ${TEST_APP}..."
 sudo dokku domains:remove "${TEST_APP}" "test.example.com" 2>&1 || echo "Domain removal completed"
 sudo dokku domains:remove "${TEST_APP}" "api.test.example.com" 2>&1 || echo "Domain removal completed"
@@ -383,6 +398,19 @@ sudo dokku dns:report 2>&1 || echo "Global report handled no managed apps case"
 # Restore the LINKS file
 sudo mv /var/lib/dokku/services/dns/LINKS.backup /var/lib/dokku/services/dns/LINKS 2>/dev/null || true
 
+echo "Testing dns:remove command..."
+echo "   Testing dns:remove for app that is in DNS management:"
+sudo dokku dns:remove tracking-test 2>&1 || echo "DNS remove completed"
+
+echo "   Verifying app was removed from DNS management:"
+sudo dokku dns:report tracking-test 2>&1 || echo "Report correctly shows app not added after removal"
+
+echo "   Testing dns:remove for app not in DNS management (should handle gracefully):"
+sudo dokku dns:remove no-domains-test 2>&1 || echo "DNS remove handled non-managed app correctly"
+
+echo "   Testing global report after removing apps:"
+sudo dokku dns:report 2>&1 || echo "Global report after removals completed"
+
 # Cleanup tracking test app
 echo "   Cleaning up tracking test app..."
 sudo dokku apps:destroy tracking-test --force 2>&1 || echo "Tracking test app cleanup completed"
@@ -395,7 +423,8 @@ echo "✅ DNS management tracking with LINKS file"
 echo "✅ Hosted zone validation for domain activation"  
 echo "✅ Elimination of plugin:install suggestions"
 echo "✅ Domain parsing improvements for multiple domains"
-echo "✅ Proper report functionality for managed vs unmanaged apps"
+echo "✅ Proper report functionality for managed vs unmanaged apps" 
+echo "✅ DNS remove functionality for cleaning up tracking"
 echo ""
 
 # Test Route53 capabilities if AWS is configured

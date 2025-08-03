@@ -1,0 +1,8 @@
+[0;34m[INFO][0m Starting Docker-based DNS plugin test
+[0;34m[INFO][0m Dokku Host: duodeca.local
+[0;34m[INFO][0m Dokku User: dokku
+[0;34m[INFO][0m Test App: nextcloud
+[0;34m[INFO][0m Log file: test-docker-20250803-165417.log
+[0;34m[INFO][0m Testing Docker container connection...
+[0;31m[ERROR][0m Cannot connect to Dokku Docker container
+[0;31m[ERROR][0m Make sure the Dokku container is running: docker-compose -f docker-compose.local.yml up -d
