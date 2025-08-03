@@ -117,12 +117,115 @@ dns_add_app_domains() {
   
   dokku_log_info2 "Adding domains for app '$APP' to DNS management"
   
-  # Display the domains that will be managed
-  for DOMAIN in "${DOMAINS[@]}"; do
-    [[ -z "$DOMAIN" ]] && continue
-    dokku_log_info1 "  → $DOMAIN"
-  done
+  # Display the domains table with status information
+  dns_display_domains_table "$APP" "${DOMAINS[@]}"
   
   dokku_log_info1 "Domains have been registered for DNS management"
   dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+}
+
+dns_display_domains_table() {
+  local APP="$1"
+  shift
+  local DOMAINS=("$@")
+  
+  # Get server IP
+  local SERVER_IP
+  SERVER_IP=$(dns_get_server_ip)
+  
+  # Get global configuration
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  local PROVIDER="None"
+  local SYNC_STATUS="Not configured"
+  
+  if [[ -f "$PROVIDER_FILE" ]]; then
+    PROVIDER="$(cat "$PROVIDER_FILE")"
+    
+    # Check provider status
+    local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
+    if [[ "$PROVIDER" != "None" ]] && [[ -d "$CREDENTIALS_DIR" ]]; then
+      case "$PROVIDER" in
+        aws)
+          if [[ -f "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID" ]] || aws sts get-caller-identity >/dev/null 2>&1; then
+            SYNC_STATUS="Ready"
+          else
+            SYNC_STATUS="Missing auth"
+          fi
+          ;;
+        cloudflare)
+          if [[ -f "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN" ]]; then
+            SYNC_STATUS="Ready"
+          else
+            SYNC_STATUS="Missing auth"
+          fi
+          ;;
+        *)
+          SYNC_STATUS="Unknown provider"
+          ;;
+      esac
+    fi
+  fi
+  
+  # Load provider functions if available
+  if [[ "$PROVIDER" != "None" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+    local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
+    if [[ -f "$PROVIDER_SCRIPT" ]]; then
+      source "$PROVIDER_SCRIPT"
+      if [[ "$PROVIDER" == "aws" ]]; then
+        dns_provider_aws_setup_env
+      fi
+    fi
+  fi
+  
+  echo
+  dokku_log_info2 "Domain Status Table for app '$APP':"
+  dokku_log_info2 "$(printf "%-30s %-8s %-15s %-15s %s" "Domain" "Status" "Enabled" "Provider" "Hosted Zone")"
+  dokku_log_info2 "$(printf "%-30s %-8s %-15s %-15s %s" "------" "------" "-------" "--------" "-----------")"
+  
+  for DOMAIN in "${DOMAINS[@]}"; do
+    [[ -z "$DOMAIN" ]] && continue
+    
+    # Get current DNS resolution
+    local CURRENT_IP
+    CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")
+    
+    # Determine DNS status emoji
+    local DNS_EMOJI="❌"
+    if [[ -n "$CURRENT_IP" ]]; then
+      if [[ "$CURRENT_IP" == "$SERVER_IP" ]]; then
+        DNS_EMOJI="✅"
+      else
+        DNS_EMOJI="⚠️"
+      fi
+    fi
+    
+    # Check if domain is enabled (always enabled when adding)
+    local ENABLED_STATUS="Yes"
+    
+    # Try to get hosted zone if provider is AWS and ready
+    local HOSTED_ZONE="-"
+    if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+      if declare -f "dns_provider_aws_get_hosted_zone_id" >/dev/null 2>&1; then
+        local ZONE_ID
+        ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null || echo "")
+        if [[ -n "$ZONE_ID" ]]; then
+          # Get the zone name from AWS
+          local ZONE_NAME
+          ZONE_NAME=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'HostedZone.Name' --output text 2>/dev/null | sed 's/\.$//g' || echo "$ZONE_ID")
+          HOSTED_ZONE="$ZONE_NAME"
+        else
+          HOSTED_ZONE="Not found"
+        fi
+      fi
+    fi
+    
+    printf "%-30s %-8s %-15s %-15s %s\n" "$DOMAIN" "$DNS_EMOJI" "$ENABLED_STATUS" "$PROVIDER" "$HOSTED_ZONE"
+  done
+  
+  echo
+  dokku_log_info2 "Status Legend:"
+  dokku_log_info1 "✅ Points to server IP ($SERVER_IP)"
+  dokku_log_info1 "⚠️  Points to different IP"
+  dokku_log_info1 "❌ No DNS record found"
 }
