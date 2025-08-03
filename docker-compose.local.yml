@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  dokku:
+    image: dokku/dokku:0.34.6
+    privileged: true
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2222:22"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dokku_data:/var/lib/dokku
+      - ./:/tmp/dokku-dns:ro
+    environment:
+      - DOKKU_HOSTNAME=localhost
+      - DOKKU_SSH_PORT=2222
+    hostname: dokku-local
+    container_name: dokku-local
+    networks:
+      - dokku-net
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.local-test
+    depends_on:
+      - dokku
+    volumes:
+      - ./:/plugin:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DOKKU_HOST=dokku
+      - DOKKU_SSH_PORT=22
+      - DOKKU_USER=dokku
+      - TEST_APP=nextcloud
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    networks:
+      - dokku-net
+    command: /wait-and-test.sh
+
+volumes:
+  dokku_data:
+
+networks:
+  dokku-net:
+    driver: bridge

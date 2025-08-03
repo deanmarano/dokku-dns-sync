@@ -1,0 +1,48 @@
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    sudo \
+    wget \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install BATS (Bash Automated Testing System)
+RUN git clone https://github.com/bats-core/bats-core.git /tmp/bats-core \
+    && cd /tmp/bats-core \
+    && ./install.sh /usr/local \
+    && rm -rf /tmp/bats-core
+
+# Install shellcheck for linting
+RUN apt-get update && apt-get install -y shellcheck && rm -rf /var/lib/apt/lists/*
+
+# Create dokku system user and directories
+RUN useradd -r -s /bin/bash -d /var/lib/dokku dokku \
+    && mkdir -p /var/lib/dokku \
+    && chown dokku:dokku /var/lib/dokku
+
+# Create minimal dokku command stub for testing
+RUN mkdir -p /usr/local/bin \
+    && echo '#!/bin/bash\necho "Mock dokku command: $*"' > /usr/local/bin/dokku \
+    && chmod +x /usr/local/bin/dokku
+
+# Set up working directory
+WORKDIR /plugin
+
+# Copy plugin files
+COPY . /plugin/
+
+# Make sure test files are executable
+RUN chmod +x tests/*.bats
+
+# Create a lighter test script that just runs the unit tests
+RUN echo '#!/bin/bash\nset -e\ncd /plugin\necho "Running BATS tests..."\ncd tests && bats *.bats' > /run-tests.sh \
+    && chmod +x /run-tests.sh
+
+# Run tests by default
+CMD ["/run-tests.sh"]

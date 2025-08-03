@@ -1,6 +1,37 @@
 #!/usr/bin/env bash
 export DOKKU_LIB_ROOT="/var/lib/dokku"
+export PATH="$PATH:$DOKKU_LIB_ROOT/plugins/available/dns/subcommands"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+
+# DNS plugin test helper functions
+setup_dns_provider() {
+  local provider="${1:-aws}"
+  dokku dns:configure "$provider" >/dev/null 2>&1 || true
+}
+
+cleanup_dns_data() {
+  rm -rf "$PLUGIN_DATA_ROOT" >/dev/null 2>&1 || true
+}
+
+create_test_app() {
+  local app_name="$1"
+  dokku apps:create "$app_name" >/dev/null 2>&1 || true
+}
+
+add_test_domains() {
+  local app_name="$1"
+  shift
+  local domains=("$@")
+  
+  for domain in "${domains[@]}"; do
+    dokku domains:add "$app_name" "$domain" >/dev/null 2>&1 || true
+  done
+}
+
+cleanup_test_app() {
+  local app_name="$1"
+  dokku apps:destroy "$app_name" --force >/dev/null 2>&1 || true
+}
 
 flunk() {
   {

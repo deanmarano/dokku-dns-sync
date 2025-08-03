@@ -68,13 +68,13 @@ dns_global_report() {
   dokku_log_info1 "Global DNS Provider: $PROVIDER"
   dokku_log_info1 "Configuration Status: $CONFIG_STATUS"
   
-  # Get all apps
+  # Get apps under DNS management
   local APPS_LIST
-  APPS_LIST=$(dokku apps:list 2>/dev/null | grep -v "====>" || echo "")
+  APPS_LIST=$(get_dns_managed_apps)
   
   if [[ -z "$APPS_LIST" ]]; then
-    dokku_log_warn "No Dokku apps found"
-    dokku_log_info1 "Create an app with: dokku apps:create <app-name>"
+    dokku_log_warn "No apps are currently under DNS management"
+    dokku_log_info1 "Add an app to DNS management with: dokku $PLUGIN_COMMAND_PREFIX:add <app-name>"
     return 0
   fi
   
@@ -260,6 +260,13 @@ dns_report() {
   local APP="$1"
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
   local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  
+  # Check if app is under DNS management
+  if ! is_app_dns_managed "$APP"; then
+    dokku_log_warn "App '$APP' is not under DNS management"
+    dokku_log_info1 "Add to DNS management with: dokku $PLUGIN_COMMAND_PREFIX:add $APP"
+    return 0
+  fi
   
   dokku_log_info2 "DNS Report for app: $APP"
   dokku_log_info2 "$(printf "%-50s" "==============================")"

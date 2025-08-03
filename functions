@@ -20,6 +20,25 @@ get_app_domains() {
   fi
 }
 
+get_dns_managed_apps() {
+  local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
+  
+  if [[ -f "$LINKS_FILE" ]]; then
+    cat "$LINKS_FILE" 2>/dev/null || echo ""
+  fi
+}
+
+is_app_dns_managed() {
+  local APP="$1"
+  local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
+  
+  if [[ -f "$LINKS_FILE" ]] && grep -q "^$APP$" "$LINKS_FILE" 2>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 dns_configure_global() {
   local PROVIDER="$1"
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
@@ -130,6 +149,18 @@ dns_add_app_domains() {
   
   dokku_log_info2 "Adding domains for app '$APP' to DNS management"
   
+  # Track this app as being under DNS management
+  local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
+  mkdir -p "$PLUGIN_DATA_ROOT"
+  
+  # Add app to LINKS file if not already present
+  if [[ ! -f "$LINKS_FILE" ]] || ! grep -q "^$APP$" "$LINKS_FILE" 2>/dev/null; then
+    echo "$APP" >> "$LINKS_FILE"
+    dokku_log_info1 "App '$APP' added to DNS management"
+  else
+    dokku_log_info1 "App '$APP' already in DNS management, updating domains"
+  fi
+  
   # Display the domains table with status information
   dns_display_domains_table "$APP" "${DOMAINS[@]}"
   
@@ -213,14 +244,11 @@ dns_display_domains_table() {
       fi
     fi
     
-    # Check if domain is enabled (always enabled when adding)
-    local ENABLED_STATUS="Yes"
-    
     # Try to get hosted zone if provider is AWS and ready
     local HOSTED_ZONE="-"
+    local ZONE_ID=""
     if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
       if declare -f "dns_provider_aws_get_hosted_zone_id" >/dev/null 2>&1; then
-        local ZONE_ID
         ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null || echo "")
         if [[ -n "$ZONE_ID" ]]; then
           # Get the zone name from AWS
@@ -231,6 +259,21 @@ dns_display_domains_table() {
           HOSTED_ZONE="Not found"
         fi
       fi
+    fi
+    
+    # Check if domain is enabled - only enable if hosted zone is found
+    local ENABLED_STATUS="No"
+    if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+      if [[ -n "$ZONE_ID" ]]; then
+        ENABLED_STATUS="Yes"
+      else
+        ENABLED_STATUS="No (no hosted zone)"
+      fi
+    elif [[ "$PROVIDER" != "None" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+      # For other providers, default to enabled (they can implement their own logic)
+      ENABLED_STATUS="Yes"
+    else
+      ENABLED_STATUS="No (provider not ready)"
     fi
     
     printf "%-30s %-8s %-15s %-15s %s\n" "$DOMAIN" "$DNS_EMOJI" "$ENABLED_STATUS" "$PROVIDER" "$HOSTED_ZONE"

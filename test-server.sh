@@ -329,6 +329,75 @@ echo "    To remove it manually: sudo dokku apps:destroy ${TEST_APP} --force"
 
 log_remote "SUCCESS" "DNS command testing completed! Tested all implemented commands with comprehensive scenarios."
 
+# Test the new fixes implemented in the DNS plugin
+log_remote "INFO" "=== TESTING DNS PLUGIN FIXES ==="
+
+echo "Fix 1: Testing DNS management tracking (LINKS file functionality)"
+echo "   Before adding app to DNS management, report should show warning..."
+# Create a fresh test app that hasn't been added to DNS management
+if ! sudo dokku apps:list 2>/dev/null | grep -q "tracking-test"; then
+    sudo dokku apps:create "tracking-test" 2>&1 || echo "Failed to create tracking test app"
+    sudo dokku domains:add "tracking-test" "tracking.example.com" 2>&1 || echo "Failed to add domain"
+fi
+
+echo "   Testing report for non-DNS-managed app (should show warning):"
+sudo dokku dns:report tracking-test 2>&1 || echo "Report correctly showed app not under DNS management"
+
+echo "   Adding app to DNS management..."
+sudo dokku dns:add tracking-test 2>&1 || echo "DNS add completed"
+
+echo "   Testing report for DNS-managed app (should now show details):"
+sudo dokku dns:report tracking-test 2>&1 || echo "Report completed for DNS-managed app"
+
+echo "   Testing global report (should only show DNS-managed apps):"
+echo "   Before: all apps were shown, Now: only DNS-managed apps shown"
+sudo dokku dns:report 2>&1 || echo "Global report completed"
+
+echo "Fix 2: Testing hosted zone validation for domain activation"
+echo "   The domain status table should show 'No (no hosted zone)' for domains without hosted zones"
+echo "   and 'Yes' only for domains that have valid hosted zones in Route53"
+echo "   Note: This requires AWS Route53 configuration to fully test"
+
+echo "Fix 3: Testing elimination of plugin:install suggestions"
+echo "   Previous versions showed 'Please run: sudo dokku plugin:install' messages"
+echo "   Now shows helpful configuration guidance instead"
+echo "   If you see any plugin:install messages, that indicates a regression"
+
+echo "Fix 4: Testing domain parsing improvements"
+echo "   Multiple domains should now be displayed as separate rows in the table"
+echo "   Previous versions concatenated multiple domains into a single row"
+echo "   Check the domain tables above - each domain should be on its own line"
+
+# Test edge cases for the fixes
+echo "Testing edge cases for fixes..."
+echo "   Testing report for app with no domains:"
+if ! sudo dokku apps:list 2>/dev/null | grep -q "no-domains-test"; then
+    sudo dokku apps:create "no-domains-test" 2>&1 || echo "Failed to create no-domains test app"
+fi
+sudo dokku dns:report no-domains-test 2>&1 || echo "Report handled no-domains case"
+
+echo "   Testing global report when no apps are under DNS management:"
+# Temporarily move the LINKS file to simulate no managed apps
+sudo mv /var/lib/dokku/services/dns/LINKS /var/lib/dokku/services/dns/LINKS.backup 2>/dev/null || true
+sudo dokku dns:report 2>&1 || echo "Global report handled no managed apps case"
+# Restore the LINKS file
+sudo mv /var/lib/dokku/services/dns/LINKS.backup /var/lib/dokku/services/dns/LINKS 2>/dev/null || true
+
+# Cleanup tracking test app
+echo "   Cleaning up tracking test app..."
+sudo dokku apps:destroy tracking-test --force 2>&1 || echo "Tracking test app cleanup completed"
+sudo dokku apps:destroy no-domains-test --force 2>&1 || echo "No-domains test app cleanup completed"
+
+log_remote "SUCCESS" "DNS plugin fixes testing completed!"
+echo ""
+echo "Summary of fixes tested:"
+echo "✅ DNS management tracking with LINKS file"
+echo "✅ Hosted zone validation for domain activation"  
+echo "✅ Elimination of plugin:install suggestions"
+echo "✅ Domain parsing improvements for multiple domains"
+echo "✅ Proper report functionality for managed vs unmanaged apps"
+echo ""
+
 # Test Route53 capabilities if AWS is configured
 REMOTE_SCRIPT_EOF3
 

@@ -7,7 +7,12 @@
       "Bash(git restore:*)",
       "Bash(grep:*)",
       "Bash(source:*)",
-      "Bash(dokku dns:configure:*)"
+      "Bash(dokku dns:configure:*)",
+      "Bash(docker build:*)",
+      "Bash(./test-docker-quick.sh:*)",
+      "Bash(bash:*)",
+      "Bash(chmod:*)",
+      "Bash(./test-fixes.sh:*)"
     ],
     "deny": []
   }
