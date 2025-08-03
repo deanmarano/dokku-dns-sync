@@ -57,9 +57,38 @@ service-verify-cmd() {
   pip install awscli"
       fi
       
-      # Check if AWS CLI is configured
+      # Check if AWS CLI is configured  
       dokku_log_info1 "Checking AWS CLI configuration..."
-      if ! aws sts get-caller-identity >/dev/null 2>&1; then
+      
+      # Helper function to run AWS commands with correct user context
+      run_aws_command() {
+        if aws "$@" >/dev/null 2>&1; then
+          aws "$@" 2>/dev/null
+        elif [[ -n "${SUDO_USER:-}" ]] && sudo -u "$SUDO_USER" aws "$@" >/dev/null 2>&1; then
+          sudo -u "$SUDO_USER" aws "$@" 2>/dev/null
+        elif [[ -f "/home/dokku/.aws/credentials" ]] && sudo -u dokku aws "$@" >/dev/null 2>&1; then
+          sudo -u dokku aws "$@" 2>/dev/null
+        else
+          return 1
+        fi
+      }
+      
+      # Try multiple AWS credential contexts for compatibility
+      local AWS_CHECK_SUCCESS=false
+      
+      if run_aws_command sts get-caller-identity >/dev/null 2>&1; then
+        AWS_CHECK_SUCCESS=true
+        # Determine which context is working for user feedback
+        if aws sts get-caller-identity >/dev/null 2>&1; then
+          true  # Current context works, no message needed
+        elif [[ -n "${SUDO_USER:-}" ]]; then
+          dokku_log_info1 "Using AWS credentials from user: $SUDO_USER"
+        else
+          dokku_log_info1 "Using AWS credentials from dokku user"
+        fi
+      fi
+      
+      if [[ "$AWS_CHECK_SUCCESS" != "true" ]]; then
         dokku_log_fail "AWS CLI is not configured or credentials are invalid.
   
 Please configure AWS CLI first using one of these methods:
@@ -79,12 +108,14 @@ Please configure AWS CLI first using one of these methods:
 For more info: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html"
       fi
       
-      # Get AWS identity information
-      local AWS_IDENTITY
-      AWS_IDENTITY=$(aws sts get-caller-identity 2>/dev/null)
-      local AWS_USER_ID=$(echo "$AWS_IDENTITY" | jq -r '.UserId // .Arn' 2>/dev/null || echo "unknown")
-      local AWS_ACCOUNT=$(echo "$AWS_IDENTITY" | jq -r '.Account' 2>/dev/null || echo "unknown")
-      local AWS_REGION=$(aws configure get region 2>/dev/null || echo "not-set")
+      # Get AWS identity information using the working credential context
+      local AWS_IDENTITY AWS_USER_ID AWS_ACCOUNT AWS_REGION
+      
+      AWS_IDENTITY=$(run_aws_command sts get-caller-identity)
+      AWS_REGION=$(run_aws_command configure get region 2>/dev/null || echo "not-set")
+      
+      AWS_USER_ID=$(echo "$AWS_IDENTITY" | jq -r '.UserId // .Arn' 2>/dev/null || echo "unknown")
+      AWS_ACCOUNT=$(echo "$AWS_IDENTITY" | jq -r '.Account' 2>/dev/null || echo "unknown")
       
       dokku_log_info2 "✓ AWS CLI configured successfully"
       dokku_log_info1 "AWS Account: $AWS_ACCOUNT"
@@ -93,14 +124,14 @@ For more info: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-qu
       
       # Test Route53 permissions
       dokku_log_info1 "Testing Route53 permissions..."
-      if aws route53 list-hosted-zones >/dev/null 2>&1; then
+      if run_aws_command route53 list-hosted-zones >/dev/null 2>&1; then
         dokku_log_info2 "✓ Route53 access confirmed"
         
         # Show available hosted zones
         dokku_log_info1 "Available hosted zones:"
-        aws route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table 2>/dev/null || {
+        run_aws_command route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table 2>/dev/null || {
           dokku_log_info1 "No hosted zones found or unable to format output"
-          aws route53 list-hosted-zones --query 'HostedZones[].Name' --output text 2>/dev/null || true
+          run_aws_command route53 list-hosted-zones --query 'HostedZones[].Name' --output text 2>/dev/null || true
         }
         
         echo
@@ -152,7 +183,7 @@ You can attach the AWS managed policy 'AmazonRoute53FullAccess' or create a cust
   dokku_log_info1 "Ready to use! Next steps:"
   dokku_log_info1 "  1. Add domains to an app: dokku $PLUGIN_COMMAND_PREFIX:add <app>"
   dokku_log_info1 "  2. Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
-  dokku_log_info1 "  3. Check sync status: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
+  dokku_log_info1 "  3. Check DNS status: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
 }
 
 service-verify-cmd "$@"

@@ -1,9 +1,14 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(rm:*)",
+      "Bash(git restore:*)",
+      "Bash(grep:*)",
+      "Bash(source:*)",
+      "Bash(dokku dns:configure:*)"
     ],
     "deny": []
-  },
-  "$schema": "https://json.schemastore.org/claude-code-settings.json"
+  }
 }

@@ -82,6 +82,16 @@ setup:
 
 test: lint unit-tests
 
+docker-test:
+	@echo "Running tests in Docker container..."
+	docker-compose -f docker-compose.test.yml build
+	docker-compose -f docker-compose.test.yml run --rm test
+
+docker-test-clean:
+	@echo "Cleaning up Docker test environment..."
+	docker-compose -f docker-compose.test.yml down --volumes --remove-orphans
+	docker rmi $$(docker images -q dokku-dns_test) 2>/dev/null || true
+
 report: tmp/xunit-reader
 	tmp/xunit-reader -p 'tmp/test-results/bats/*.xml'
 	tmp/xunit-reader -p 'tmp/test-results/shellcheck/*.xml'

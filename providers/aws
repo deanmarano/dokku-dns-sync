@@ -252,7 +252,7 @@ $GLOBAL_DOMAINS"
     if [[ -n "$A_RECORDS" ]]; then
       while IFS=$'\t' read -r DOMAIN IP; do
         # Remove trailing dot from domain name
-        DOMAIN=$(echo "$DOMAIN" | sed 's/\.$//')
+        DOMAIN="${DOMAIN%.}"
         if [[ -n "$DOMAIN" ]] && [[ -n "$IP" ]]; then
           ((RECORD_COUNT++))
           

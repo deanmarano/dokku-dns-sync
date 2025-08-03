@@ -6,10 +6,10 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-configure-cmd() {
-  #E configure the global DNS sync provider
+  #E configure the global DNS provider
   #E dokku $PLUGIN_COMMAND_PREFIX:configure [aws|cloudflare]
-  #E this sets up or changes the DNS provider for all DNS synchronization.
-  #E if no provider is specified, defaults to '$DNS_SYNC_DEFAULT_PROVIDER'
+  #E this sets up or changes the DNS provider for all DNS management.
+  #E if no provider is specified, defaults to '$DNS_DEFAULT_PROVIDER'
   #E if provider is already configured, this will change to the new provider
   #E after configuration, use other commands to:
   #E - configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify
@@ -31,7 +31,7 @@ service-configure-cmd() {
   
   # Use default provider if not specified
   if [[ -z "$PROVIDER" ]]; then
-    PROVIDER="$DNS_SYNC_DEFAULT_PROVIDER"
+    PROVIDER="$DNS_DEFAULT_PROVIDER"
   fi
   
   # Validate provider

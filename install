@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common-functions"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
@@ -90,7 +90,7 @@ plugin-install() {
     echo ""
     echo "🚀 Ready to use! Quick start:"
     echo "  dokku $PLUGIN_COMMAND_PREFIX:add <app>     # Add app domains to DNS"
-    echo "  dokku $PLUGIN_COMMAND_PREFIX:sync <app>            # Sync DNS records"
+    echo "  dokku $PLUGIN_COMMAND_PREFIX:sync <app>            # Update DNS records"
     echo "  dokku $PLUGIN_COMMAND_PREFIX:report <app>          # Check DNS status"
   else
     echo "-----> $PLUGIN_SERVICE plugin installed successfully"
@@ -114,7 +114,7 @@ plugin-install() {
             ;;
         esac
         echo "  3. Add domains: dokku $PLUGIN_COMMAND_PREFIX:add <app>"
-        echo "  4. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+        echo "  4. Update DNS: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
       else
         echo "⚙️  Manual setup required:"
         echo "  1. Install and configure a DNS provider CLI:"

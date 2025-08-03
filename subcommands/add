@@ -11,7 +11,7 @@ service-add-cmd() {
   #E dokku $PLUGIN_COMMAND_PREFIX:add nextcloud example.com api.example.com
   #E by default, adds all domains configured for the app
   #E optionally specify specific domains to add to DNS management
-  #E this registers domains with the DNS provider but doesn't sync records yet
+  #E this registers domains with the DNS provider but doesn't update records yet
   #E use 'dokku $PLUGIN_COMMAND_PREFIX:sync' to update DNS records
   #A app, app to add domains for
   #A domains, specific domains to add (optional, defaults to all app domains)
