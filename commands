@@ -8,6 +8,12 @@ set -eo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/help-functions"
 
+# Allow help commands to work even without full configuration
+if [[ "$1" == "help" || "$1" == "$PLUGIN_COMMAND_PREFIX:help" ]]; then
+  fn-help "$@"
+  exit 0
+fi
+
 if [[ ! -d $PLUGIN_DATA_ROOT ]]; then
   dokku_log_fail "$PLUGIN_SERVICE: Plugin data directory not found. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
 fi
