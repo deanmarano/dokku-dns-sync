@@ -7,6 +7,11 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 
 # DNS-specific functions
 
+get_app_domains() {
+  local APP="$1"
+  dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo ""
+}
+
 dns_configure_global() {
   local PROVIDER="$1"
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
