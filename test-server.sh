@@ -3,9 +3,14 @@ set -euo pipefail
 
 # Remote server test script for dokku-dns plugin (Single SSH Session)
 # Usage: ./test-server.sh [server-hostname] [ssh-user] [test-app]
+#
+# For AWS testing, create a .env file with:
+#   AWS_ACCESS_KEY_ID=your_key
+#   AWS_SECRET_ACCESS_KEY=your_secret
+#   AWS_DEFAULT_REGION=us-east-1
 
-SERVER_HOST="${1:-your-server.com}"
-SSH_USER="${2:-root}"
+SERVER_HOST="${1:-${SSH_SERVER:-your-server.com}}"
+SSH_USER="${2:-${REMOTE_USER:-root}}"
 TEST_APP="${3:-nextcloud}"
 PLUGIN_NAME="dns"
 PLUGIN_REPO="https://github.com/deanmarano/dokku-dns.git"
@@ -43,6 +48,7 @@ log() {
 generate_remote_script() {
     local script_file="/tmp/dokku-dns-test-script.sh"
     
+    echo "DEBUG: Creating script file: $script_file" >&2
     cat > "$script_file" << 'REMOTE_SCRIPT_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -116,30 +122,56 @@ fi
 
 REMOTE_SCRIPT_EOF
 
+    echo "DEBUG: Finished initial script block" >&2
     # Add AWS credential setup if credentials are available
-    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-        cat >> "$script_file" << CRED_SCRIPT_EOF
+    echo "DEBUG: Checking AWS credentials..." >&2
+    if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        echo "DEBUG: AWS credentials found, adding credential setup" >&2
+        
+        echo "DEBUG: About to write credential header" >&2
+        # Write credential setup without heredoc to avoid local execution
+        cat >> "$script_file" << 'CRED_HEADER_EOF'
 
 # Set up temporary AWS credentials for testing
 log_remote "INFO" "=== SETTING UP TEMPORARY AWS CREDENTIALS ==="
 echo "Local AWS credentials detected - configuring temporarily on remote server"
-echo "Test app: ${TEST_APP}"
+CRED_HEADER_EOF
+        
+        echo "DEBUG: Finished credential header" >&2
+        echo "echo \"Test app: ${TEST_APP}\"" >> "$script_file"
+        echo "DEBUG: Added test app line" >&2
+        
+        cat >> "$script_file" << 'CRED_BODY_EOF'
 
 # Configure for current user
 mkdir -p ~/.aws
-cat > ~/.aws/credentials << 'AWS_CRED_EOF'
-[default]
-aws_access_key_id = ${AWS_ACCESS_KEY}
-aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
-AWS_CRED_EOF
+CRED_BODY_EOF
+        
+        echo "DEBUG: Finished credential body" >&2
+        # Write credentials with variable substitution but no command execution
+        echo "DEBUG: About to write credentials" >&2
+        echo "cat > ~/.aws/credentials << 'AWS_CRED_EOF'" >> "$script_file"
+        echo "[default]" >> "$script_file"
+        echo "DEBUG: About to access AWS_ACCESS_KEY_ID" >&2
+        echo "aws_access_key_id = ${AWS_ACCESS_KEY_ID}" >> "$script_file"
+        echo "DEBUG: About to access AWS_SECRET_ACCESS_KEY" >&2
+        echo "aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}" >> "$script_file"
+        echo "AWS_CRED_EOF" >> "$script_file"
+        echo "DEBUG: Finished first credentials block" >&2
+        echo "" >> "$script_file"
+        echo "# Also configure for root (for sudo operations like plugin install)" >> "$script_file"
+        echo "sudo mkdir -p /root/.aws" >> "$script_file"
+        echo "sudo tee /root/.aws/credentials > /dev/null << 'AWS_CRED_EOF'" >> "$script_file"
+        echo "[default]" >> "$script_file"
+        echo "DEBUG: About to write second AWS_ACCESS_KEY_ID" >&2
+        echo "aws_access_key_id = ${AWS_ACCESS_KEY_ID}" >> "$script_file"
+        echo "DEBUG: About to write second AWS_SECRET_ACCESS_KEY" >&2
+        echo "aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}" >> "$script_file"
+        echo "AWS_CRED_EOF" >> "$script_file"
+        echo "DEBUG: Finished second credentials block" >&2
 
-# Also configure for root (for sudo operations like plugin install)
-sudo mkdir -p /root/.aws
-sudo tee /root/.aws/credentials > /dev/null << 'AWS_CRED_EOF'
-[default]
-aws_access_key_id = ${AWS_ACCESS_KEY}
-aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
-AWS_CRED_EOF
+        echo "DEBUG: About to write credential footer" >&2
+        cat >> "$script_file" << 'CRED_FOOTER_EOF'
 
 # Configure region for both users
 cat > ~/.aws/config << 'AWS_CONFIG_EOF'
@@ -158,17 +190,20 @@ AWS_CONFIG_EOF
 log_remote "INFO" "Testing AWS CLI configuration..."
 aws sts get-caller-identity
 echo "✓ Temporary AWS credentials configured - expecting best-case auto-detection!"
-CRED_SCRIPT_EOF
+CRED_FOOTER_EOF
+        echo "DEBUG: Finished credential footer" >&2
     else
-        cat >> "$script_file" << 'NO_CRED_SCRIPT_EOF'
+        echo "DEBUG: No AWS credentials, writing no-cred section" >&2
+        cat >> "$script_file" << NO_CRED_SCRIPT_EOF
 
 log_remote "INFO" "=== NO AWS CREDENTIALS PROVIDED ==="
 echo "No local AWS credentials found in environment"
 echo "Test app: ${TEST_APP}"
-echo "Set AWS_ACCESS_KEY and AWS_SECRET_ACCESS_KEY to test with credentials"
+echo "Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to test with credentials"
 NO_CRED_SCRIPT_EOF
     fi
 
+    echo "DEBUG: About to add rest of script" >&2
     # Add the rest of the script
     cat >> "$script_file" << 'REMOTE_SCRIPT_EOF2'
 
@@ -176,7 +211,10 @@ NO_CRED_SCRIPT_EOF
 log_remote "INFO" "=== INSTALLING DNS PLUGIN ==="
 REMOTE_SCRIPT_EOF2
 
-    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    echo "DEBUG: Finished REMOTE_SCRIPT_EOF2" >&2
+    echo "DEBUG: Checking AWS credentials again..." >&2
+    if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        echo "DEBUG: AWS credentials found again, adding message" >&2
         cat >> "$script_file" << 'WITH_CRED_MSG_EOF'
 echo "Expected installation scenario with AWS credentials:"
 echo "  🚀 Best case expected: AWS CLI ready with Route53 access → Immediate use"
@@ -190,7 +228,7 @@ echo "  ⚙️ Fallback: No CLI detected → Manual setup required"
 NO_CRED_MSG_EOF
     fi
 
-    cat >> "$script_file" << 'REMOTE_SCRIPT_EOF3'
+    cat >> "$script_file" << REMOTE_SCRIPT_EOF3
 
 sudo dokku plugin:install https://github.com/deanmarano/dokku-dns.git
 
@@ -202,9 +240,9 @@ sudo dokku dns:help || echo "Help command failed, but plugin might still work"
 
 # Test provider capabilities
 log_remote "INFO" "=== TESTING PROVIDER CAPABILITIES ==="
-if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
+if command -v aws >/dev/null 2>&1 && \aws sts get-caller-identity >/dev/null 2>&1; then
     echo "✓ AWS CLI is installed and configured - should be ready to use"
-    aws route53 list-hosted-zones >/dev/null 2>&1 && echo 'Route53 access confirmed' || echo 'Route53 access limited'
+    \aws route53 list-hosted-zones >/dev/null 2>&1 && echo 'Route53 access confirmed' || echo 'Route53 access limited'
     sudo dokku dns:verify 2>&1 || true
 elif command -v aws >/dev/null 2>&1; then
     echo "🔧 AWS CLI is installed but not configured"
@@ -217,21 +255,23 @@ fi
 # Test implemented DNS commands only
 log_remote "INFO" "=== TESTING IMPLEMENTED DNS COMMANDS ==="
 
-# Test app availability first
-echo "Testing with app: ${TEST_APP}"
+# Create test app and domains for comprehensive testing
+echo "Setting up test app: ${TEST_APP}"
 if ! sudo dokku apps:list 2>/dev/null | grep -q "${TEST_APP}"; then
-    echo "Warning: App '${TEST_APP}' not found. Available apps:"
-    sudo dokku apps:list 2>/dev/null || echo "No apps found"
-    echo "Using first available app for testing..."
-    AVAILABLE_APP=$(sudo dokku apps:list 2>/dev/null | grep -v "====>" | head -1 | xargs)
-    if [[ -n "$AVAILABLE_APP" ]]; then
-        TEST_APP="$AVAILABLE_APP"
-        echo "Using app: $TEST_APP"
-    else
-        echo "No apps available for testing app-specific commands"
-        TEST_APP=""
-    fi
+    echo "Creating test app: ${TEST_APP}"
+    sudo dokku apps:create "${TEST_APP}" 2>&1 || echo "Failed to create app, using existing"
+else
+    echo "Test app ${TEST_APP} already exists"
 fi
+
+# Add test domains to the app for comprehensive DNS testing
+echo "Adding test domains to app ${TEST_APP}..."
+sudo dokku domains:add "${TEST_APP}" "test.example.com" 2>&1 || echo "Domain add failed or already exists"
+sudo dokku domains:add "${TEST_APP}" "api.test.example.com" 2>&1 || echo "Domain add failed or already exists"
+
+# Check what domains are actually configured
+echo "Current domains for ${TEST_APP}:"
+sudo dokku domains:report "${TEST_APP}" 2>&1 || echo "Could not get domain report"
 
 # Test the 6 implemented DNS commands
 log_remote "INFO" "Testing implemented DNS commands..."
@@ -243,41 +283,56 @@ echo "2. Testing dns:verify (verify DNS provider setup and connectivity + discov
 sudo dokku dns:verify 2>&1 || echo "Verify command completed"
 
 echo "3. Testing dns:configure (configure global DNS provider)"
-sudo dokku dns:configure 2>&1 || echo "Configure command completed"
-
-if [[ -n "$TEST_APP" ]]; then
-    echo "4. Testing dns:add $TEST_APP (add app domains to DNS management)"
-    sudo dokku dns:add "$TEST_APP" 2>&1 || echo "Add command completed"
-    
-    echo "5. Testing dns:sync $TEST_APP (synchronize DNS records for app)"
-    sudo dokku dns:sync "$TEST_APP" 2>&1 || echo "Sync command completed"
-    
-    echo "6. Testing dns:report (global report - all apps and domains)"
-    sudo dokku dns:report 2>&1 || echo "Global report command completed"
-    
-    echo "7. Testing dns:report $TEST_APP (app-specific DNS status and domain info)"
-    sudo dokku dns:report "$TEST_APP" 2>&1 || echo "App report command completed"
+if command -v aws >/dev/null 2>&1 && \aws sts get-caller-identity >/dev/null 2>&1; then
+    echo "   Configuring with AWS provider (auto-detected)..."
+    sudo dokku dns:configure aws 2>&1 || echo "Configure command completed"
 else
-    echo "4-5. Skipping app-specific commands (no apps available)"
-    echo "     Showing usage for app-required commands:"
-    echo "4. Testing dns:add (expects app name)"
-    sudo dokku dns:add 2>&1 || echo "Add command shows usage"
-    echo "5. Testing dns:sync (expects app name)"  
-    sudo dokku dns:sync 2>&1 || echo "Sync command shows usage"
-    
-    echo "6. Testing dns:report (global report - should work without apps)"
-    sudo dokku dns:report 2>&1 || echo "Global report command completed"
-    
-    echo "7. Testing dns:report with non-existent app (should show usage)"
-    sudo dokku dns:report nonexistent-app 2>&1 || echo "App report shows usage"
+    echo "   Testing default configuration..."
+    sudo dokku dns:configure 2>&1 || echo "Configure command completed"
 fi
 
-log_remote "SUCCESS" "DNS command testing completed! Tested 7 implemented command scenarios."
+echo "4. Testing dns:add $TEST_APP (add app domains to DNS management)"
+echo "   This should show the new domain status table with hosted zones!"
+sudo dokku dns:add "$TEST_APP" 2>&1 || echo "Add command completed"
+
+echo "5. Testing dns:sync $TEST_APP (synchronize DNS records for app)"
+sudo dokku dns:sync "$TEST_APP" 2>&1 || echo "Sync command completed"
+
+echo "6. Testing dns:report (global report - all apps and domains)"
+sudo dokku dns:report 2>&1 || echo "Global report command completed"
+
+echo "7. Testing dns:report $TEST_APP (app-specific DNS status and domain info)"
+sudo dokku dns:report "$TEST_APP" 2>&1 || echo "App report command completed"
+
+echo "8. Testing dns:verify again (should show updated status after configuration)"
+sudo dokku dns:verify 2>&1 || echo "Verify command completed"
+
+# Test cleanup and edge cases
+echo "9. Testing edge cases and error handling..."
+echo "   Testing dns:add without arguments (should show usage):"
+sudo dokku dns:add 2>&1 || echo "Add command shows usage as expected"
+
+echo "   Testing dns:sync without arguments (should show usage):"
+sudo dokku dns:sync 2>&1 || echo "Sync command shows usage as expected"
+
+echo "   Testing dns:report with nonexistent app:"
+sudo dokku dns:report nonexistent-test-app 2>&1 || echo "App report shows error as expected"
+
+# Cleanup test app if we created it for testing  
+echo "10. Cleanup test resources..."
+echo "    Removing test domains from ${TEST_APP}..."
+sudo dokku domains:remove "${TEST_APP}" "test.example.com" 2>&1 || echo "Domain removal completed"
+sudo dokku domains:remove "${TEST_APP}" "api.test.example.com" 2>&1 || echo "Domain removal completed"
+
+echo "    Note: Leaving test app ${TEST_APP} for potential future testing"
+echo "    To remove it manually: sudo dokku apps:destroy ${TEST_APP} --force"
+
+log_remote "SUCCESS" "DNS command testing completed! Tested all implemented commands with comprehensive scenarios."
 
 # Test Route53 capabilities if AWS is configured
 REMOTE_SCRIPT_EOF3
 
-    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
         cat >> "$script_file" << 'ROUTE53_TEST_EOF'
 log_remote "INFO" "=== TESTING ROUTE53 CAPABILITIES ==="
 aws route53 list-hosted-zones --query 'HostedZones[].Name' --output table 2>/dev/null || echo 'No hosted zones or limited access'
@@ -319,6 +374,15 @@ REMOTE_SCRIPT_EOF4
 }
 
 main() {
+    # Load environment variables from .env file if it exists
+    if [[ -f ".env" ]]; then
+        echo "Loading AWS credentials from .env file"
+        export $(grep -v '^#' .env | xargs)
+    elif [[ -f "../.env" ]]; then
+        echo "Loading AWS credentials from ../.env file"  
+        export $(grep -v '^#' ../.env | xargs)
+    fi
+
     log "INFO" "Starting DNS plugin test on server: $SERVER_HOST"
     log "INFO" "SSH User: $SSH_USER"
     log "INFO" "Test App: $TEST_APP"
@@ -337,15 +401,18 @@ main() {
     
     # Generate the remote script
     log "INFO" "Generating remote test script..."
+    echo "DEBUG: About to call generate_remote_script function"
     local SCRIPT_FILE
+    echo "DEBUG: Starting generate_remote_script"
     SCRIPT_FILE=$(generate_remote_script)
+    echo "DEBUG: Finished generate_remote_script"
     
     # Check credentials
-    if [[ -n "${AWS_ACCESS_KEY:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
         log "SUCCESS" "AWS credentials detected - will test best-case auto-detection"
     else
         log "INFO" "No AWS credentials provided - will test basic auto-detection"
-        echo "Set AWS_ACCESS_KEY and AWS_SECRET_ACCESS_KEY to test with credentials"
+        echo "Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to test with credentials"
     fi
     echo ""
     

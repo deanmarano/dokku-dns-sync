@@ -2,3 +2,6 @@
 .vagrant
 bootstrap.sh
 test-server-*.log
+.env
+.env.local
+.env.*.local
