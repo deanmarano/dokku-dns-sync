@@ -1,581 +1,55 @@
 #!/usr/bin/env bash
+# DNS Plugin Functions
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common-functions"
 source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
-source "$PLUGIN_AVAILABLE_PATH/config/functions"
-if [[ -f "$PLUGIN_AVAILABLE_PATH/docker-options/functions" ]]; then
-  source "$PLUGIN_AVAILABLE_PATH/docker-options/functions"
-fi
 
-service_connect() {
-  local SERVICE="$1"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local SERVICE_NAME="$(get_service_name "$SERVICE")"
-  local DATABASE_NAME="$(get_database_name "$SERVICE")"
-  local SERVICE_TTY_OPTS
-  has_tty && SERVICE_TTY_OPTS="-t"
-
-  "$DOCKER_BIN" container exec --env=LANG=C.UTF-8 --env=LC_ALL=C.UTF-8 -i $SERVICE_TTY_OPTS "$SERVICE_NAME" psql -v ON_ERROR_STOP=1 -h localhost -U postgres "$DATABASE_NAME"
-}
-
-service_configure() {
-  local SERVICE="$1" BACKEND="$2"
-  is_valid_service_name "$SERVICE" || dokku_log_fail "Please specify a valid name for the service. Valid characters are: [A-Za-z0-9_]+"
-  [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a valid name for the service"
-  [[ ! -d "$PLUGIN_DATA_ROOT/$SERVICE" ]] || dokku_log_fail "$PLUGIN_SERVICE service $SERVICE already exists"
-  
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local LINKS_FILE="$SERVICE_ROOT/LINKS"
-  local BACKEND_FILE="$SERVICE_ROOT/BACKEND"
-
-  plugn trigger service-action pre-configure "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
-  
-  # Create service directory structure
-  mkdir -p "$SERVICE_ROOT" || dokku_log_fail "Unable to create service directory"
-  mkdir -p "$SERVICE_ROOT/credentials" || dokku_log_fail "Unable to create credentials directory"
-  chmod 700 "$SERVICE_ROOT/credentials"
-  
-  # Initialize configuration files
-  touch "$LINKS_FILE"
-  touch "$SERVICE_ROOT/CONFIG"
-  
-  # Set backend if provided
-  if [[ -n "$BACKEND" ]]; then
-    echo "$BACKEND" > "$BACKEND_FILE"
-    echo "# DNS Sync Service Configuration" > "$SERVICE_ROOT/CONFIG"
-    echo "# Backend: $BACKEND" >> "$SERVICE_ROOT/CONFIG"
-    echo "# Configured on: $(date)" >> "$SERVICE_ROOT/CONFIG"
-  else
-    touch "$BACKEND_FILE"
-    echo "# DNS Sync Service Configuration" > "$SERVICE_ROOT/CONFIG"
-    echo "# Backend: not configured" >> "$SERVICE_ROOT/CONFIG"
-    echo "# Use 'dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <backend>' to set DNS provider" >> "$SERVICE_ROOT/CONFIG"
-  fi
-  
-  plugn trigger service-action post-configure "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
-  
-  dokku_log_info2 "$PLUGIN_SERVICE service configured: $SERVICE"
-  
-  if [[ -n "$BACKEND" ]]; then
-    dokku_log_info2 "Backend set to: $BACKEND"
-    dokku_log_info1 "Next steps:"
-    dokku_log_info1 "  1. Verify setup: dokku $PLUGIN_COMMAND_PREFIX:verify"
-    dokku_log_info1 "  2. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
-    dokku_log_info1 "  3. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
-  else
-    dokku_log_info1 "Next steps:"
-    dokku_log_info1 "  1. Set DNS backend: dokku $PLUGIN_COMMAND_PREFIX:set-backend $SERVICE <aws|cloudflare>"
-    dokku_log_info1 "  2. Verify setup: dokku $PLUGIN_COMMAND_PREFIX:verify"
-    dokku_log_info1 "  3. Link to app: dokku $PLUGIN_COMMAND_PREFIX:link $SERVICE <app>"
-    dokku_log_info1 "  4. Sync DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $SERVICE"
-  fi
-}
-
-service_create() {
-  local SERVICE="$1"
-  is_valid_service_name "$SERVICE" || dokku_log_fail "Please specify a valid name for the service. Valid characters are: [A-Za-z0-9_]+"
-  [[ -z "$SERVICE" ]] && dokku_log_fail "Please specify a valid name for the service"
-  [[ ! -d "$PLUGIN_DATA_ROOT/$SERVICE" ]] || dokku_log_fail "$PLUGIN_SERVICE service $SERVICE already exists"
-  SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  LINKS_FILE="$SERVICE_ROOT/LINKS"
-
-  service_parse_args "${@:2}"
-
-  if ! service_image_exists "$SERVICE"; then
-    if [[ "$PLUGIN_DISABLE_PULL" == "true" ]]; then
-      dokku_log_warn "${PLUGIN_DISABLE_PULL_VARIABLE} environment variable detected. Not running pull command." 1>&2
-      dokku_log_warn "   docker image pull ${IMAGE}" 1>&2
-      dokku_log_warn "$PLUGIN_SERVICE service creation failed"
-      exit 1
-    fi
-    "$DOCKER_BIN" image pull "$PLUGIN_IMAGE:$PLUGIN_IMAGE_VERSION" || dokku_log_fail "$PLUGIN_SERVICE image $PLUGIN_IMAGE:$PLUGIN_IMAGE_VERSION pull failed"
-  fi
-
-  plugn trigger service-action pre-create "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
-  mkdir -p "$SERVICE_ROOT" || dokku_log_fail "Unable to create service directory"
-  mkdir -p "$SERVICE_ROOT/data" || dokku_log_fail "Unable to create service data directory"
-  touch "$LINKS_FILE"
-
-  PASSWORD=$(openssl rand -hex 16)
-  if [[ -n "$SERVICE_PASSWORD" ]]; then
-    PASSWORD="$SERVICE_PASSWORD"
-    dokku_log_warn "Specified password may not be as secure as the auto-generated password"
-  fi
-  echo "$PASSWORD" >"$SERVICE_ROOT/PASSWORD"
-  chmod 640 "$SERVICE_ROOT/PASSWORD"
-
-  service_commit_config "$SERVICE"
-  write_database_name "$SERVICE"
-  plugn trigger service-action post-create "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
-  service_create_container "$SERVICE"
-  plugn trigger service-action post-create-complete "$PLUGIN_COMMAND_PREFIX" "$SERVICE"
-}
-
-service_create_container() {
-  local SERVICE="$1"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local SERVICE_HOST_ROOT="$PLUGIN_DATA_HOST_ROOT/$SERVICE"
-  local SERVICE_NAME="$(get_service_name "$SERVICE")"
-  local PASSWORD="$(service_password "$SERVICE")"
-  local DATABASE_NAME="$(get_database_name "$SERVICE")"
-  local PREVIOUS_ID
-
-  if [[ -f "$SERVICE_ROOT/CONFIG_OPTIONS" ]]; then
-    export CONFIG_OPTIONS="$(cat "$SERVICE_ROOT/CONFIG_OPTIONS")"
-  fi
-
-  local network_alias="$(service_dns_hostname "$SERVICE")"
-
-  rm -f "$SERVICE_ROOT/ID"
-  declare -a DOCKER_ARGS
-  DOCKER_ARGS=()
-  DOCKER_ARGS+=("--cidfile=$SERVICE_ROOT/ID")
-  DOCKER_ARGS+=("--env-file=$SERVICE_ROOT/ENV")
-  DOCKER_ARGS+=("--env=POSTGRES_PASSWORD=$PASSWORD")
-  DOCKER_ARGS+=("--hostname=$SERVICE_NAME")
-  DOCKER_ARGS+=("--label=dokku.service=$PLUGIN_COMMAND_PREFIX")
-  DOCKER_ARGS+=("--label=dokku=service")
-  DOCKER_ARGS+=("--name=$SERVICE_NAME")
-  DOCKER_ARGS+=("--restart=always")
-  DOCKER_ARGS+=("--volume=$SERVICE_HOST_ROOT/data:/var/lib/postgresql/data")
-
-  declare -a LINK_CONTAINER_DOCKER_ARGS
-  LINK_CONTAINER_DOCKER_ARGS=()
-  LINK_CONTAINER_DOCKER_ARGS+=("--rm")
-  LINK_CONTAINER_DOCKER_ARGS+=("--link")
-  LINK_CONTAINER_DOCKER_ARGS+=("$SERVICE_NAME:$network_alias")
-
-  [[ -f "$SERVICE_ROOT/SERVICE_MEMORY" ]] && SERVICE_MEMORY="$(cat "$SERVICE_ROOT/SERVICE_MEMORY")"
-  if [[ -n "$SERVICE_MEMORY" ]]; then
-    DOCKER_ARGS+=("--memory=${SERVICE_MEMORY}m")
-  fi
-
-  [[ -f "$SERVICE_ROOT/SHM_SIZE" ]] && SERVICE_SHM_SIZE="$(cat "$SERVICE_ROOT/SHM_SIZE")"
-  if [[ -n "$SERVICE_SHM_SIZE" ]]; then
-    DOCKER_ARGS+=("--shm-size=${SERVICE_SHM_SIZE}")
-  fi
-
-  [[ -f "$SERVICE_ROOT/IMAGE" ]] && PLUGIN_IMAGE="$(cat "$SERVICE_ROOT/IMAGE")"
-  [[ -f "$SERVICE_ROOT/IMAGE_VERSION" ]] && PLUGIN_IMAGE_VERSION="$(cat "$SERVICE_ROOT/IMAGE_VERSION")"
-
-  local network="$(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "$SERVICE" "initial-network")"
-  if [[ -n "$network" ]]; then
-    DOCKER_ARGS+=("--network=${network}")
-    DOCKER_ARGS+=("--network-alias=${network_alias}")
-    LINK_CONTAINER_DOCKER_ARGS+=("--network=${network}")
-  fi
-
-  # shellcheck disable=SC2086
-  suppress_output "$DOCKER_BIN" container create "${DOCKER_ARGS[@]}" "$PLUGIN_IMAGE:$PLUGIN_IMAGE_VERSION" $CONFIG_OPTIONS
-
-  if [[ -n "$(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "$SERVICE" "post-create-network")" ]]; then
-    dokku_log_verbose_quiet "Connecting to networks after container create"
-    while read -r line || [[ -n "$line" ]]; do
-      dokku_log_verbose_quiet "- $line"
-      "$DOCKER_BIN" network connect --alias "$network_alias" "$line" "$SERVICE_NAME"
-    done < <(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "$SERVICE" "post-create-network" | tr "," "\n")
-  fi
-  suppress_output "$DOCKER_BIN" container start "$(cat "$SERVICE_ROOT/ID")"
-  service_port_reconcile_status "$SERVICE"
-
-  if [[ -n "$(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "$SERVICE" "post-start-network")" ]]; then
-    dokku_log_verbose_quiet "Connecting to networks after container start"
-    while read -r line || [[ -n "$line" ]]; do
-      dokku_log_verbose_quiet "- $line"
-      "$DOCKER_BIN" network connect --alias "$network_alias" "$line" "$SERVICE_NAME"
-    done < <(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "$SERVICE" "post-start-network" | tr "," "\n")
-  fi
-
-  dokku_log_verbose_quiet "Waiting for container to be ready"
-  if ! suppress_output "$DOCKER_BIN" container run "${LINK_CONTAINER_DOCKER_ARGS[@]}" "$PLUGIN_WAIT_IMAGE" -c "$network_alias:$PLUGIN_DATASTORE_WAIT_PORT"; then
-    dokku_log_info2_quiet "Start of $SERVICE container output"
-    dokku_container_log_verbose_quiet "$SERVICE_NAME"
-    dokku_log_info2_quiet "End of $SERVICE container output"
-    return 1
-  fi
-
-  dokku_log_verbose_quiet "Creating container database"
-  "$DOCKER_BIN" container exec "$SERVICE_NAME" su - postgres -c "createdb -E utf8 $DATABASE_NAME" 2>/dev/null || dokku_log_verbose_quiet 'Already exists'
-
-  dokku_log_verbose_quiet "Securing connection to database"
-  service_pause "$SERVICE" >/dev/null
-  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/create_ssl_certs.sh" "$SERVICE_ROOT" &>/dev/null
-  "$DOCKER_BIN" container run --rm -i -v "$SERVICE_HOST_ROOT/data:/var/lib/postgresql/data" -v "$SERVICE_HOST_ROOT/certs:/var/lib/postgresql/certs" "$PLUGIN_IMAGE:$PLUGIN_IMAGE_VERSION" bash -s <"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/enable_ssl.sh" &>/dev/null
-  rm -rf "$SERVICE_HOST_ROOT/certs"
-
-  suppress_output "$DOCKER_BIN" container start "$(cat "$SERVICE_ROOT/ID")"
-  service_port_reconcile_status "$SERVICE"
-
-  dokku_log_info2 "$PLUGIN_SERVICE container created: $SERVICE"
-  service_info "$SERVICE"
-}
-
-service_export() {
-  local SERVICE="$1"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local SERVICE_NAME="$(get_service_name "$SERVICE")"
-  local DATABASE_NAME="$(get_database_name "$SERVICE")"
-  local PASSWORD="$(service_password "$SERVICE")"
-
-  [[ -n $SSH_TTY ]] && stty -opost
-  "$DOCKER_BIN" container exec "$SERVICE_NAME" env PGPASSWORD="$PASSWORD" pg_dump -Fc --no-acl --no-owner -h localhost -U postgres -w "$DATABASE_NAME"
-  status=$?
-  [[ -n $SSH_TTY ]] && stty opost
-  exit $status
-}
-
-service_import() {
-  local SERVICE="$1"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local SERVICE_HOST_ROOT="$PLUGIN_DATA_HOST_ROOT/$SERVICE"
-  local SERVICE_NAME="$(get_service_name "$SERVICE")"
-  local DATABASE_NAME="$(get_database_name "$SERVICE")"
-  local PASSWORD="$(service_password "$SERVICE")"
-
-  if [[ -t 0 ]]; then
-    dokku_log_fail "No data provided on stdin."
-  fi
-  "$DOCKER_BIN" container exec -i "$SERVICE_NAME" env PGPASSWORD="$PASSWORD" pg_restore -h localhost -cO --if-exists -d "$DATABASE_NAME" -U postgres -w
-}
-
-service_start() {
-  local SERVICE="$1"
-  local QUIET="$2"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local SERVICE_NAME="$(get_service_name "$SERVICE")"
-  local ID=$("$DOCKER_BIN" container ps -aq --no-trunc --filter "status=running" --filter "name=^/$SERVICE_NAME$") || true
-  if [[ -n $ID ]]; then
-    [[ -z $QUIET ]] && dokku_log_warn "Service is already started"
-    if [[ ! -f "$SERVICE_ROOT/ID" ]] || [[ "$(cat "$SERVICE_ROOT/ID")" != "$ID" ]]; then
-      [[ -z $QUIET ]] && dokku_log_warn "Updating local container ID"
-      echo "$ID" >"$SERVICE_ROOT/ID"
-    fi
-    return 0
-  fi
-
-  dokku_log_info2_quiet "Starting container"
-  local PREVIOUS_ID=$("$DOCKER_BIN" container ps -aq --no-trunc --filter "status=exited" --filter "name=^/$SERVICE_NAME$") || true
-  local PASSWORD="$(service_password "$SERVICE")"
-
-  if [[ -n $PREVIOUS_ID ]]; then
-    "$DOCKER_BIN" container start "$PREVIOUS_ID" >/dev/null
-    service_port_reconcile_status "$SERVICE"
-    dokku_log_info2 "Container started"
-  elif service_image_exists "$SERVICE" && [[ -n "$PASSWORD" ]]; then
-    service_create_container "$SERVICE"
-  else
-    if ! service_image_exists "$SERVICE"; then
-      [[ -f "$SERVICE_ROOT/IMAGE" ]] && PLUGIN_IMAGE="$(cat "$SERVICE_ROOT/IMAGE")"
-      [[ -f "$SERVICE_ROOT/IMAGE_VERSION" ]] && PLUGIN_IMAGE_VERSION="$(cat "$SERVICE_ROOT/IMAGE_VERSION")"
-      dokku_log_verbose_quiet "Missing image $PLUGIN_IMAGE:$PLUGIN_IMAGE_VERSION for $SERVICE"
-    else
-      dokku_log_verbose_quiet "Neither container nor valid configuration exists for $SERVICE"
-    fi
-  fi
-}
-
-service_url() {
-  local SERVICE="$1"
-  local SERVICE_DNS_HOSTNAME="$(service_dns_hostname "$SERVICE")"
-  local DATABASE_NAME="$(get_database_name "$SERVICE")"
-  local PASSWORD="$(service_password "$SERVICE")"
-  echo "$PLUGIN_SCHEME://postgres:$PASSWORD@$SERVICE_DNS_HOSTNAME:${PLUGIN_DATASTORE_PORTS[0]}/$DATABASE_NAME"
-}
-
-# DNS Provider Functions
-dns_load_provider() {
-  local SERVICE="$1"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local PROVIDER_FILE="$SERVICE_ROOT/PROVIDER"
-  
-  if [[ ! -f "$PROVIDER_FILE" ]]; then
-    dokku_log_fail "No provider configured for service $SERVICE. Run: dokku dns:set-provider $SERVICE <provider>"
-  fi
-  
-  local PROVIDER
-  PROVIDER="$(cat "$PROVIDER_FILE")"
-  
-  if [[ -z "$PROVIDER" ]]; then
-    dokku_log_fail "Provider not set for service $SERVICE. Run: dokku dns:set-provider $SERVICE <provider>"
-  fi
-  
-  local PROVIDER_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
-  
-  if [[ ! -f "$PROVIDER_FILE" ]]; then
-    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
-  fi
-  
-  source "$PROVIDER_FILE"
-  echo "$PROVIDER"
-}
-
-dns_get_service_domains() {
-  local SERVICE="$1"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local DOMAINS_FILE="$SERVICE_ROOT/DOMAINS"
-  
-  if [[ -f "$DOMAINS_FILE" ]]; then
-    cat "$DOMAINS_FILE"
-  fi
-}
-
-dns_add_domain_to_service() {
-  local SERVICE="$1"
-  local DOMAIN="$2"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local DOMAINS_FILE="$SERVICE_ROOT/DOMAINS"
-  
-  # Check if domain already exists
-  if grep -qx "$DOMAIN" "$DOMAINS_FILE" 2>/dev/null; then
-    dokku_log_warn "Domain $DOMAIN already configured for service $SERVICE"
-    return 0
-  fi
-  
-  echo "$DOMAIN" >> "$DOMAINS_FILE"
-  sort "$DOMAINS_FILE" -u -o "$DOMAINS_FILE"
-  dokku_log_info1 "Added domain $DOMAIN to service $SERVICE"
-}
-
-dns_remove_domain_from_service() {
-  local SERVICE="$1"
-  local DOMAIN="$2"
-  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-  local DOMAINS_FILE="$SERVICE_ROOT/DOMAINS"
-  
-  if [[ ! -f "$DOMAINS_FILE" ]]; then
-    dokku_log_warn "No domains file found for service $SERVICE"
-    return 0
-  fi
-  
-  sed -i.bak "/^$DOMAIN$/d" "$DOMAINS_FILE" && rm -f "$DOMAINS_FILE.bak"
-  dokku_log_info1 "Removed domain $DOMAIN from service $SERVICE"
-}
+# DNS-specific functions
 
 dns_configure_global() {
   local PROVIDER="$1"
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
   local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
-  local CONFIG_FILE="$GLOBAL_CONFIG_ROOT/CONFIG"
   
-  # Create global config directory structure
-  mkdir -p "$GLOBAL_CONFIG_ROOT" || dokku_log_fail "Unable to create DNS sync directory"
-  mkdir -p "$GLOBAL_CONFIG_ROOT/credentials" || dokku_log_fail "Unable to create credentials directory"
-  chmod 700 "$GLOBAL_CONFIG_ROOT/credentials"
+  # Validate provider
+  case "$PROVIDER" in
+    aws|cloudflare)
+      ;;
+    *)
+      dokku_log_fail "Invalid provider '$PROVIDER'. Supported providers: aws, cloudflare"
+      ;;
+  esac
   
-  # Set provider
+  # Create data directory if it doesn't exist
+  mkdir -p "$GLOBAL_CONFIG_ROOT"
+  
+  # Set the provider
   echo "$PROVIDER" > "$PROVIDER_FILE"
   
-  # Create config file
-  echo "# DNS Sync Global Configuration" > "$CONFIG_FILE"
-  echo "# Provider: $PROVIDER" >> "$CONFIG_FILE"
-  echo "# Configured on: $(date)" >> "$CONFIG_FILE"
-  
-  dokku_log_info2 "DNS Sync configured globally with provider: $PROVIDER"
-  dokku_log_info1 "Next steps:"
-  dokku_log_info1 "  1. Verify setup: dokku $PLUGIN_COMMAND_PREFIX:verify"
-  dokku_log_info1 "  2. Sync an app: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
-}
-
-dns_find_provider_for_domain() {
-  local DOMAIN="$1"
-  local PROVIDERS=()
-  
-  # Check AWS Route53
-  if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
-    # Load AWS provider to use its functions
-    local AWS_PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/aws"
-    if [[ -f "$AWS_PROVIDER_SCRIPT" ]]; then
-      source "$AWS_PROVIDER_SCRIPT"
-      if dns_provider_aws_get_hosted_zone_id "$DOMAIN" >/dev/null 2>&1; then
-        PROVIDERS+=("aws")
-      fi
-    fi
-  fi
-  
-  # Check Cloudflare (TODO: implement when Cloudflare provider is ready)
-  # if command -v flarectl >/dev/null 2>&1; then
-  #   # Check if domain exists in Cloudflare
-  #   PROVIDERS+=("cloudflare")
-  # fi
-  
-  # Return the first provider that can manage this domain
-  if [[ ${#PROVIDERS[@]} -gt 0 ]]; then
-    echo "${PROVIDERS[0]}"
-    return 0
-  fi
-  
-  return 1
-}
-
-dns_match_domains_to_providers() {
-  local DOMAINS=("$@")
-  declare -A DOMAIN_PROVIDERS
-  local UNMATCHED_DOMAINS=()
-  
-  for domain in "${DOMAINS[@]}"; do
-    local provider
-    if provider=$(dns_find_provider_for_domain "$domain"); then
-      DOMAIN_PROVIDERS["$domain"]="$provider"
-      dokku_log_info2 "Domain '$domain' → $provider provider"
-    else
-      UNMATCHED_DOMAINS+=("$domain")
-      dokku_log_info2 "Domain '$domain' → no provider found"
-    fi
-  done
-  
-  # Export the associative array for use by caller
-  for domain in "${!DOMAIN_PROVIDERS[@]}"; do
-    echo "$domain:${DOMAIN_PROVIDERS[$domain]}"
-  done
-  
-  # Warn about unmatched domains
-  if [[ ${#UNMATCHED_DOMAINS[@]} -gt 0 ]]; then
-    dokku_log_warn "No DNS provider found for domains: ${UNMATCHED_DOMAINS[*]}"
-    dokku_log_warn "Make sure these domains have hosted zones in AWS Route53 or Cloudflare"
-  fi
-}
-
-dns_auto_detect_provider() {
-  local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
-  local DETECTED_PROVIDERS=()
-  local CONFIGURED_PROVIDER=""
-  
-  # Check for AWS CLI
-  if command -v aws >/dev/null 2>&1; then
-    DETECTED_PROVIDERS+=("aws")
-    
-    if aws sts get-caller-identity >/dev/null 2>&1; then
-      # Test Route53 access
-      if aws route53 list-hosted-zones >/dev/null 2>&1; then
-        CONFIGURED_PROVIDER="aws"
-      fi
-    fi
-  fi
-  
-  # Check for Cloudflare CLI (flarectl)
-  if command -v flarectl >/dev/null 2>&1; then
-    DETECTED_PROVIDERS+=("cloudflare")
-  fi
-  
-  # Set provider based on detection
-  if [[ -n "$CONFIGURED_PROVIDER" ]]; then
-    echo "$CONFIGURED_PROVIDER" > "$PROVIDER_FILE"
-    dokku_log_info1 "Auto-detected and configured $CONFIGURED_PROVIDER as DNS provider"
-    echo "$CONFIGURED_PROVIDER"
-    return 0
-  elif [[ ${#DETECTED_PROVIDERS[@]} -eq 1 ]]; then
-    echo "${DETECTED_PROVIDERS[0]}" > "$PROVIDER_FILE"
-    dokku_log_info1 "Auto-detected ${DETECTED_PROVIDERS[0]} as DNS provider (configuration may be needed)"
-    echo "${DETECTED_PROVIDERS[0]}"
-    return 0
-  elif [[ ${#DETECTED_PROVIDERS[@]} -gt 1 ]]; then
-    dokku_log_fail "Multiple DNS providers detected: ${DETECTED_PROVIDERS[*]}. Choose one: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
-  else
-    dokku_log_fail "No DNS provider CLI tools detected. Install AWS CLI or Cloudflare CLI, then try again."
-  fi
-  
-  return 1
-}
-
-dns_sync_app() {
-  local APP="$1"
-  
-  dokku_log_info2 "Syncing DNS for app: $APP"
-  
-  # Get all domains for the app
-  local APP_DOMAINS
-  mapfile -t APP_DOMAINS < <(get_app_domains "$APP")
-  
-  if [[ ${#APP_DOMAINS[@]} -eq 0 ]]; then
-    dokku_log_warn "No domains found for app: $APP"
-    dokku_log_info1 "Add domains first with: dokku domains:add $APP <domain>"
-    return 0
-  fi
-  
-  dokku_log_info1 "Found ${#APP_DOMAINS[@]} domains for app '$APP': ${APP_DOMAINS[*]}"
-  
-  # Match domains to providers
-  local DOMAIN_PROVIDER_MAPPINGS
-  mapfile -t DOMAIN_PROVIDER_MAPPINGS < <(dns_match_domains_to_providers "${APP_DOMAINS[@]}")
-  
-  if [[ ${#DOMAIN_PROVIDER_MAPPINGS[@]} -eq 0 ]]; then
-    dokku_log_fail "No DNS providers found for any domains. Make sure domains have hosted zones in AWS Route53 or Cloudflare."
-  fi
-  
-  # Group domains by provider
-  declare -A PROVIDER_DOMAINS
-  for mapping in "${DOMAIN_PROVIDER_MAPPINGS[@]}"; do
-    local domain="${mapping%:*}"
-    local provider="${mapping#*:}"
-    
-    if [[ -z "${PROVIDER_DOMAINS[$provider]}" ]]; then
-      PROVIDER_DOMAINS[$provider]="$domain"
-    else
-      PROVIDER_DOMAINS[$provider]="${PROVIDER_DOMAINS[$provider]} $domain"
-    fi
-  done
-  
-  # Get the server's IP for DNS records
-  local SERVER_IP
-  SERVER_IP=$(dns_get_server_ip "$APP")
-  
-  # Sync domains for each provider
-  for provider in "${!PROVIDER_DOMAINS[@]}"; do
-    local domains=(${PROVIDER_DOMAINS[$provider]})
-    dokku_log_info1 "Syncing ${#domains[@]} domains with $provider provider"
-    
-    # Load the provider
-    local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$provider"
-    if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
-      dokku_log_warn "Provider '$provider' script not found, skipping domains: ${domains[*]}"
-      continue
-    fi
-    
-    source "$PROVIDER_SCRIPT"
-    
-    # Validate provider credentials
-    if ! "dns_provider_${provider}_validate_credentials"; then
-      dokku_log_warn "Provider '$provider' credentials invalid, skipping domains: ${domains[*]}"
-      continue
-    fi
-    
-    "dns_provider_${provider}_setup_env"
-    
-    # Sync each domain
-    for domain in "${domains[@]}"; do
-      dokku_log_info2 "Syncing domain: $domain → $SERVER_IP"
-      if "dns_provider_${provider}_create_record" "$domain" "A" "$SERVER_IP"; then
-        dokku_log_info1 "✓ $domain synced successfully"
-      else
-        dokku_log_warn "✗ Failed to sync $domain"
-      fi
-    done
-  done
-  
-  dokku_log_info2 "DNS sync completed for app: $APP"
+  dokku_log_info2 "DNS configured globally with provider: $PROVIDER"
+  dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:verify"
 }
 
 dns_get_server_ip() {
-  local APP="$1"
-  local SERVER_IP=""
+  # Try to get the server's public IP using multiple methods
+  local SERVER_IP
   
-  # Try to get the server's IP from global domains first
+  # First try to use global domains to resolve server IP
   local GLOBAL_DOMAINS
-  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null)
+  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
   
   if [[ -n "$GLOBAL_DOMAINS" ]]; then
     # Use the first global domain to resolve server IP
     local FIRST_GLOBAL_DOMAIN
     FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
-    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1)
+    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1 2>/dev/null || echo "")
   fi
   
-  # If no global domains or couldn't resolve, try to get server's public IP
+  # If no global domains or couldn't resolve, try to get server IP another way
   if [[ -z "$SERVER_IP" ]]; then
-    SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || curl -s --max-time 5 ipecho.net/plain 2>/dev/null || curl -s --max-time 5 icanhazip.com 2>/dev/null)
+    # Try to get the server's public IP
+    SERVER_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || curl -s --max-time 3 ipecho.net/plain 2>/dev/null || curl -s --max-time 3 icanhazip.com 2>/dev/null || echo "")
   fi
   
   if [[ -z "$SERVER_IP" ]]; then
@@ -585,57 +59,70 @@ dns_get_server_ip() {
   echo "$SERVER_IP"
 }
 
-get_app_domains() {
+dns_app() {
   local APP="$1"
-  local GLOBAL_VHOST_FILE="$DOKKU_ROOT/VHOST"
-  local APP_VHOST_FILE="$DOKKU_ROOT/$APP/VHOST"
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
-  # Check app-specific VHOST file first
-  if [[ -f "$APP_VHOST_FILE" ]]; then
-    cat "$APP_VHOST_FILE" 2>/dev/null | grep -v '^$' || true
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "No DNS provider configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  fi
+  
+  local PROVIDER
+  PROVIDER="$(cat "$PROVIDER_FILE")"
+  
+  if [[ -z "$PROVIDER" ]]; then
+    dokku_log_fail "DNS provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  fi
+  
+  # Load the provider functions
+  local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
+  if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
+    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
+  fi
+  source "$PROVIDER_SCRIPT"
+  
+  # Call the provider-specific sync function
+  if declare -f "dns_provider_${PROVIDER}_sync_app" >/dev/null 2>&1; then
+    "dns_provider_${PROVIDER}_sync_app" "$APP"
   else
-    # Fall back to domains:report command
-    dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null | cut -d: -f2- | tr ' ' '\n' | grep -v '^$' || true
+    dokku_log_fail "Provider '$PROVIDER' does not support sync operations"
   fi
 }
 
 dns_add_app_domains() {
   local APP="$1"
-  shift 1
+  shift
   local DOMAINS=("$@")
   
-  dokku_log_info2 "Adding domains to DNS management for app: $APP"
-  
-  # Get all app domains if none specified
+  # If no domains specified, get all domains for the app
   if [[ ${#DOMAINS[@]} -eq 0 ]]; then
-    mapfile -t DOMAINS < <(get_app_domains "$APP")
-    if [[ ${#DOMAINS[@]} -eq 0 ]]; then
-      dokku_log_fail "No domains found for app '$APP'. Add domains first with: dokku domains:add $APP <domain>"
+    local APP_DOMAINS
+    APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
+    
+    if [[ -z "$APP_DOMAINS" ]]; then
+      dokku_log_warn "No domains configured for app: $APP"
+      dokku_log_info1 "Add domains with: dokku domains:add $APP <domain>"
+      return 0
     fi
-    dokku_log_info1 "Adding all domains for app '$APP': ${DOMAINS[*]}"
-  else
-    dokku_log_info1 "Adding specified domains for app '$APP': ${DOMAINS[*]}"
+    
+    # Convert to array
+    readarray -t DOMAINS <<< "$APP_DOMAINS"
   fi
   
-  # Store domains for this app (this is mainly for tracking/reporting purposes)
-  local APP_DOMAINS_DIR="$PLUGIN_DATA_ROOT/apps/$APP"
-  mkdir -p "$APP_DOMAINS_DIR"
-  local DOMAINS_FILE="$APP_DOMAINS_DIR/DOMAINS"
+  if [[ ${#DOMAINS[@]} -eq 0 ]]; then
+    dokku_log_warn "No domains to add for app: $APP"
+    return 0
+  fi
   
-  # Add each domain to the file if not already present
-  for domain in "${DOMAINS[@]}"; do
-    if ! grep -q "^$domain$" "$DOMAINS_FILE" 2>/dev/null; then
-      echo "$domain" >> "$DOMAINS_FILE"
-      dokku_log_info2 "✓ Registered domain '$domain' for DNS management"
-    else
-      dokku_log_info2 "Domain '$domain' already registered for DNS management"
-    fi
+  dokku_log_info2 "Adding domains for app '$APP' to DNS management"
+  
+  # Display the domains that will be managed
+  for DOMAIN in "${DOMAINS[@]}"; do
+    [[ -z "$DOMAIN" ]] && continue
+    dokku_log_info1 "  → $DOMAIN"
   done
   
-  # Show which providers can manage these domains
-  dokku_log_info1 "Checking which DNS providers can manage these domains..."
-  dns_match_domains_to_providers "${DOMAINS[@]}" >/dev/null
-  
-  dokku_log_info2 "Domains registered for DNS management"
+  dokku_log_info1 "Domains have been registered for DNS management"
   dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
 }

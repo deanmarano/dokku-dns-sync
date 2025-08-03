@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Remote server test script for dokku-dns-sync plugin (Single SSH Session)
+# Remote server test script for dokku-dns plugin (Single SSH Session)
 # Usage: ./test-server.sh [server-hostname] [ssh-user] [test-app]
 
 SERVER_HOST="${1:-your-server.com}"
@@ -255,7 +255,7 @@ if [[ -n "$TEST_APP" ]]; then
     echo "6. Testing dns:report (global report - all apps and domains)"
     sudo dokku dns:report 2>&1 || echo "Global report command completed"
     
-    echo "7. Testing dns:report $TEST_APP (app-specific DNS sync status and domain info)"
+    echo "7. Testing dns:report $TEST_APP (app-specific DNS status and domain info)"
     sudo dokku dns:report "$TEST_APP" 2>&1 || echo "App report command completed"
 else
     echo "4-5. Skipping app-specific commands (no apps available)"
@@ -319,7 +319,7 @@ REMOTE_SCRIPT_EOF4
 }
 
 main() {
-    log "INFO" "Starting DNS Sync plugin test on server: $SERVER_HOST"
+    log "INFO" "Starting DNS plugin test on server: $SERVER_HOST"
     log "INFO" "SSH User: $SSH_USER"
     log "INFO" "Test App: $TEST_APP"
     log "INFO" "Log file: $LOG_FILE"

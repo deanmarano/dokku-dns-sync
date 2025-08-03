@@ -1,20 +1,20 @@
-# DNS Sync Plugin Development TODO
+# DNS Plugin Development TODO
 
 ## Phase 1: Core Foundation (High Priority) - COMPLETED ✅
 
-- [x] **Update core configuration** - Transform postgres config to dns-sync ✅
-- [x] **Create dns-sync:configure** - Initialize global DNS configuration ✅ 
-- [x] **Implement dns-sync:set-backend** - Configure AWS/Cloudflare backend ✅
-- [x] **Create dns-sync:backend-auth** - Store provider credentials securely ✅
+- [x] **Update core configuration** - Transform postgres config to dns ✅
+- [x] **Create dns:configure** - Initialize global DNS configuration ✅ 
+- [x] **Implement dns:set-backend** - Configure AWS/Cloudflare backend ✅
+- [x] **Create dns:backend-auth** - Store provider credentials securely ✅
 - [x] **Create AWS Route53 backend** - Full aws-cli integration with hosted zone discovery ✅
-- [x] **Implement dns-sync:sync** - Manual domain record synchronization ✅
+- [x] **Implement dns:sync** - Manual domain record synchronization ✅
 - [x] **Simplify API** - Remove service-based approach, work directly with apps ✅
 
 ## Phase 2: Integration (Medium Priority) - COMPLETED ✅
 
-- [x] **Remove dns-sync:link** - Eliminated unnecessary service linking ✅
+- [x] **Remove dns:link** - Eliminated unnecessary service linking ✅
 - [x] **Update common-functions** - Added global DNS configuration helpers ✅
-- [x] **Create dns-sync:report** - Display DNS sync status and configuration ✅
+- [x] **Create dns:report** - Display DNS status and configuration ✅
 - [x] **Write BATS tests** - Comprehensive test coverage for AWS backend ✅
 - [x] **Create remote test script** - Server installation and testing automation ✅
 
@@ -29,7 +29,7 @@
 
 ## Notes
 
-**Major API Simplification**: The plugin has been completely redesigned from a service-based architecture (like dokku-postgres) to a global configuration approach. This eliminates the confusing two-step process and makes DNS sync work more intuitively with Dokku apps.
+**Major API Simplification**: The plugin has been completely redesigned from a service-based architecture (like dokku-postgres) to a global configuration approach. This eliminates the confusing two-step process and makes DNS work more intuitively with Dokku apps.
 
 ### Current API (Consolidated)
 

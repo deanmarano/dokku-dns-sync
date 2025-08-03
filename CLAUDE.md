@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Dokku plugin for DNS synchronization with multiple cloud providers. The plugin allows per-app domain management and DNS record synchronization across different backends (AWS Route53, Cloudflare, etc.). It follows the dokku-postgres plugin architecture pattern.
+This is a Dokku plugin for DNS with multiple cloud providers. The plugin allows per-app domain management and DNS record management across different backends (AWS Route53, Cloudflare, etc.). It follows the dokku-postgres plugin architecture pattern.
 
-The plugin is built as a shell-based Dokku service plugin that manages DNS configurations and synchronizes domain records with cloud DNS providers on a per-application basis.
+The plugin is built as a shell-based Dokku service plugin that manages DNS configurations and manages domain records with cloud DNS providers on a per-application basis.
 
 ## Development Commands
 
@@ -39,40 +39,32 @@ The plugin is built as a shell-based Dokku service plugin that manages DNS confi
 - `plugin.toml` - Plugin metadata and configuration
 
 **Key Variables (from config file):**
-- `PLUGIN_COMMAND_PREFIX` - Command namespace (currently "postgres", should be "dns-sync")
+- `PLUGIN_COMMAND_PREFIX` - Command namespace (currently "dns")
 - `PLUGIN_SERVICE` - Human readable service name
 - `PLUGIN_DATA_ROOT` - Service data storage location
 - `PLUGIN_DEFAULT_ALIAS` - Default environment variable alias
 
-### DNS-Sync Specific Architecture
+### DNS Specific Architecture
 
-The DNS synchronization should work as follows:
+The DNS management should work as follows:
 
-1. **Service Creation**: Create a DNS sync configuration for an app
+1. **Service Creation**: Create a DNS configuration for an app
 2. **Backend Configuration**: Configure cloud provider credentials (AWS, Cloudflare)
 3. **Domain Linking**: Link domains to applications for DNS management
-4. **Sync Operations**: Synchronize DNS records when app domains change
+4. **Sync Operations**: Manage DNS records when app domains change
 5. **Multi-Backend Support**: Support multiple DNS providers simultaneously
 
 ### Expected Command Structure
 
-Based on the dokku-postgres pattern, the DNS sync plugin should support:
+Based on the current implementation, the DNS plugin supports:
 
 ```bash
-dokku dns-sync:configure <service> [backend]      # Configure DNS sync service (optional backend: aws, cloudflare)
-dokku dns-sync:destroy <service>                   # Remove DNS sync configuration  
-dokku dns-sync:link <service> <app>                # Link DNS service to app
-dokku dns-sync:unlink <service> <app>              # Unlink DNS service from app
-dokku dns-sync:set <service> <key> <value>         # Set configuration
-dokku dns-sync:info <service>                      # Show service information
-dokku dns-sync:list                                # List all DNS sync services
-
-dokku dns-sync:report <app>                        # Show DNS sync status for app
-
-# DNS-specific commands  
-dokku dns-sync:sync <service>                      # Manually trigger sync
-dokku dns-sync:set-backend <service> <backend>     # Set DNS backend (aws, cloudflare)
-dokku dns-sync:backend-auth <service>              # Configure backend credentials
+dokku dns:configure [provider]                     # Configure DNS provider globally (defaults to aws)
+dokku dns:verify                                   # Verify DNS provider setup and connectivity
+dokku dns:add <app>                                # Add app domains to DNS management
+dokku dns:sync <app>                               # Synchronize DNS records for app
+dokku dns:report [app]                             # Show DNS status for app(s)
+dokku dns:help                                     # Show all available commands
 ```
 
 ## Development Patterns
@@ -98,11 +90,11 @@ dokku dns-sync:backend-auth <service>              # Configure backend credentia
 - Use `test_helper.bash` for common test utilities
 - Follow existing test patterns for service lifecycle testing
 
-## Key Files to Modify for DNS-Sync
+## Key Files to Modify for DNS
 
 1. **config** - Update plugin variables (PLUGIN_COMMAND_PREFIX, PLUGIN_SERVICE, etc.)
 2. **plugin.toml** - Update plugin description and metadata
-3. **functions** - Replace postgres-specific logic with DNS sync operations
+3. **functions** - Replace postgres-specific logic with DNS operations
 4. **subcommands/** - Adapt each subcommand for DNS functionality
 5. **common-functions** - Add DNS-specific utility functions
 

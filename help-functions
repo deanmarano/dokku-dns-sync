@@ -2,8 +2,23 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common-functions"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 export SUBCOMMAND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/subcommands"
+
+is_implemented_command() {
+  declare desc="return true if the subcommand is implemented"
+  local SUBCOMMAND="$1"
+  
+  # All our subcommands are implemented
+  case "$SUBCOMMAND" in
+    add|configure|report|sync|verify)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 fn-help() {
   declare CMD="$1"
@@ -44,13 +59,15 @@ fn-help-all() {
 
     echo -e "${BOLD}usage${NORMAL}: dokku ${PLUGIN_COMMAND_PREFIX}[:COMMAND]"
     echo ''
-    echo -e "${BOLD}List your $PLUGIN_COMMAND_PREFIX services.${NORMAL}"
+    echo -e "${BOLD}Manage DNS for your apps with cloud providers.${NORMAL}"
     echo ''
-    echo -e "${BLUE}Example:${NORMAL}"
+    echo -e "${BLUE}Quick Start:${NORMAL}"
     echo ''
-    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:list"
-    echo ''
-    fn-help-list-example | column -c5 -t -s,
+    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:configure aws"
+    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:verify"
+    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:add myapp"
+    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:sync myapp"
+    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:report        # view all apps"
     echo ''
     echo -e "dokku ${BOLD}${PLUGIN_COMMAND_PREFIX}${NORMAL} commands: (get help with ${CYAN}dokku ${PLUGIN_COMMAND_PREFIX}:help SUBCOMMAND${NORMAL})"
     echo ''
@@ -60,7 +77,7 @@ fn-help-all() {
     fn-help-contents
   else
     cat <<help_desc
-    $PLUGIN_COMMAND_PREFIX, Plugin for managing $PLUGIN_SERVICE services
+    $PLUGIN_COMMAND_PREFIX, Plugin for DNS with cloud providers
 help_desc
   fi
 
@@ -160,14 +177,6 @@ fn-help-fancy-color() {
   echo "$@"
 }
 
-fn-help-list-example() {
-  # shellcheck disable=SC2034
-  declare desc="return $PLUGIN_COMMAND_PREFIX plugin help content"
-  cat <<help_list
-      $PLUGIN_SERVICE services
-      service-name
-help_list
-}
 
 fn-help-subcommand-args() {
   declare FUNC_FILE="$1" FULL_OUTPUT="$2"

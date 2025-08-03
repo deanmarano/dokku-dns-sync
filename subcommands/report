@@ -6,31 +6,31 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-report-cmd() {
-  #E display DNS sync status and domain information for app(s)
+  #E display DNS status and domain information for app(s)
   #E dokku $PLUGIN_COMMAND_PREFIX:report [app]
   #E shows server IP, domains, DNS status with emojis, and hosted zones
   #E without app: shows all apps and their domains
   #E with app: shows detailed report for specific app
   #E DNS status: ✅ correct, ⚠️ wrong IP, ❌ no record
-  #A app, app to generate DNS sync report for (optional - shows all apps if omitted)
-  declare desc="display DNS sync status and domain information for app(s)"
+  #A app, app to generate DNS report for (optional - shows all apps if omitted)
+  declare desc="display DNS status and domain information for app(s)"
   local cmd="$PLUGIN_COMMAND_PREFIX:report" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
   declare APP="$1"
 
   if [[ -z "$APP" ]]; then
-    dns_sync_global_report
+    dns_global_report
   else
     verify_app_name "$APP"
-    dns_sync_report "$APP"
+    dns_report "$APP"
   fi
 }
 
-dns_sync_global_report() {
+dns_global_report() {
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
   local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
-  dokku_log_info2 "DNS Sync Global Report - All Apps"
+  dokku_log_info2 "DNS Global Report - All Apps"
   dokku_log_info2 "$(printf "%-50s" "==================================")"
   
   # Get server's public IP first
@@ -256,12 +256,12 @@ dns_sync_global_report() {
   dokku_log_info2 "For detailed app-specific report: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
 }
 
-dns_sync_report() {
+dns_report() {
   local APP="$1"
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
   local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
-  dokku_log_info2 "DNS Sync Report for app: $APP"
+  dokku_log_info2 "DNS Report for app: $APP"
   dokku_log_info2 "$(printf "%-50s" "==============================")"
   
   # Get server's public IP first

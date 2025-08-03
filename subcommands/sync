@@ -19,7 +19,7 @@ service-sync-cmd() {
   [[ -z "$APP" ]] && dokku_log_fail "Please specify an app name"
   verify_app_name "$APP"
   
-  dns_sync_app "$APP"
+  dns_app "$APP"
 }
 
 service-sync-cmd "$@"

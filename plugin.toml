@@ -1,4 +1,4 @@
 [plugin]
-description = "dokku dns synchronization service plugin"
+description = "dokku dns service plugin"
 version = "0.1.0"
 [plugin.config]

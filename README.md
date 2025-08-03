@@ -19,7 +19,7 @@ sudo dokku plugin:install https://github.com/dokku/dokku-dns.git --name dns
 ```
 dns:add <app>            # add app domains to dns provider for management
 dns:configure <provider> # configure or change the global dns provider
-dns:report <app>         # display DNS sync status and domain information for an app
+dns:report <app>         # display DNS status and domain information for an app
 dns:sync <app>           # synchronize DNS records for app
 dns:verify               # verify DNS provider setup and connectivity
 ```
@@ -183,7 +183,7 @@ Run the verify command and enter your token when prompted:
 dokku dns:verify
 ```
 
-### display DNS sync status and domain information for an app
+### display DNS status and domain information for an app
 
 ```shell
 # usage
