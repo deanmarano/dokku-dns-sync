@@ -5,6 +5,8 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
 
+echo "DEBUG: Starting install with PLUGIN_DATA_ROOT=$PLUGIN_DATA_ROOT"
+
 detect_and_configure_provider() {
   local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
   local DETECTED_PROVIDERS=()
