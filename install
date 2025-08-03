@@ -11,7 +11,16 @@ detect_and_configure_provider() {
   local CONFIGURED_PROVIDER=""
   
   # Ensure the data directory exists
-  mkdir -p "$PLUGIN_DATA_ROOT" >/dev/null 2>&1 || true
+  if [[ -z "$PLUGIN_DATA_ROOT" ]]; then
+    echo "Failed to create DNS config directory"
+    echo "PLUGIN_DATA_ROOT is not set. Check config file."
+    return 1
+  fi
+  
+  mkdir -p "$PLUGIN_DATA_ROOT" >/dev/null 2>&1 || {
+    echo "Failed to create directory: $PLUGIN_DATA_ROOT"
+    return 1
+  }
   
   # Check for AWS CLI
   if command -v aws >/dev/null 2>&1; then
