@@ -10,7 +10,7 @@ DOKKU_HOST="${1:-${DOKKU_HOST:-dokku}}"
 DOKKU_USER="${2:-${DOKKU_USER:-dokku}}"
 TEST_APP="${3:-nextcloud}"
 PLUGIN_NAME="dns"
-LOG_FILE="test-docker-$(date +%Y%m%d-%H%M%S).log"
+LOG_FILE="/tmp/test-docker-$(date +%Y%m%d-%H%M%S).log"
 
 # Colors for output
 RED='\033[0;31m'
@@ -27,16 +27,16 @@ log() {
     
     case "$level" in
         "INFO")
-            echo -e "${BLUE}[INFO]${NC} $message" | tee -a "$LOG_FILE"
+            echo -e "${BLUE}[INFO]${NC} $message"
             ;;
         "SUCCESS")
-            echo -e "${GREEN}[SUCCESS]${NC} $message" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}[SUCCESS]${NC} $message"
             ;;
         "WARNING")
-            echo -e "${YELLOW}[WARNING]${NC} $message" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}[WARNING]${NC} $message"
             ;;
         "ERROR")
-            echo -e "${RED}[ERROR]${NC} $message" | tee -a "$LOG_FILE"
+            echo -e "${RED}[ERROR]${NC} $message"
             ;;
     esac
 }
@@ -388,28 +388,31 @@ main() {
     log "INFO" "Dokku Host: $DOKKU_HOST"  
     log "INFO" "Dokku User: $DOKKU_USER"
     log "INFO" "Test App: $TEST_APP"
-    log "INFO" "Log file: $LOG_FILE"
     echo ""
     
-    # Test Docker connection
-    log "INFO" "Testing Docker container connection..."
-    if ! docker exec dokku-local echo "Docker connection successful" >/dev/null 2>&1; then
-        log "ERROR" "Cannot connect to Dokku Docker container"
-        log "ERROR" "Make sure the Dokku container is running: docker-compose -f docker-compose.local.yml up -d"
+    # Test connection to Dokku container via SSH (since we're in a separate container)
+    log "INFO" "Testing connection to Dokku container..."
+    if ! nc -z "$DOKKU_HOST" 22 2>/dev/null; then
+        log "ERROR" "Cannot connect to Dokku container at $DOKKU_HOST:22"
+        log "ERROR" "Make sure the Dokku container is running and accessible"
         exit 1
     fi
-    log "SUCCESS" "Docker connection established"
+    log "SUCCESS" "Connection to Dokku container established"
     
-    # Generate the test script and execute it
-    log "INFO" "Generating and executing test script..."
+    # Generate the test script and execute it in the Dokku container
+    log "INFO" "Generating and executing test script in Dokku container..."
     local test_script
     test_script=$(generate_docker_test_script)
     
-    if echo "$test_script" | docker exec -i dokku-local bash; then
+    # Use Docker exec to run the script in the Dokku container (we have access to Docker socket)
+    echo "$test_script" > /tmp/dns-test.sh
+    chmod +x /tmp/dns-test.sh
+    
+    if docker cp /tmp/dns-test.sh dokku-local:/tmp/dns-test.sh && docker exec dokku-local bash /tmp/dns-test.sh; then
         log "SUCCESS" "All tests completed successfully!"
-        log "INFO" "Check the DNS plugin functionality with multiple domains"
+        log "INFO" "DNS plugin functionality verified with comprehensive test suite"
     else
-        log "ERROR" "Tests failed. Check the log file: $LOG_FILE"
+        log "ERROR" "Tests failed. Check the output above for details."
         exit 1
     fi
 }
