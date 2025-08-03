@@ -8,10 +8,6 @@ set -eo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/help-functions"
 
-if [[ ! -d $PLUGIN_CONFIG_ROOT ]]; then
-  dokku_log_fail "$PLUGIN_SERVICE: Plugin configuration directory not found. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
-fi
-
 if [[ ! -d $PLUGIN_DATA_ROOT ]]; then
   dokku_log_fail "$PLUGIN_SERVICE: Plugin data directory not found. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
 fi
