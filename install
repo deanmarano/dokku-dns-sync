@@ -5,27 +5,13 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
 
-echo "DEBUG: Starting install with PLUGIN_DATA_ROOT=$PLUGIN_DATA_ROOT"
-
 detect_and_configure_provider() {
   local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
   local DETECTED_PROVIDERS=()
   local CONFIGURED_PROVIDER=""
   
-  # Debug and ensure the data directory exists
-  echo "DEBUG: DOKKU_LIB_ROOT=$DOKKU_LIB_ROOT"
-  echo "DEBUG: PLUGIN_DATA_ROOT=$PLUGIN_DATA_ROOT"
-  
-  if [[ -z "$PLUGIN_DATA_ROOT" ]]; then
-    echo "Failed to create DNS config directory"
-    echo "PLUGIN_DATA_ROOT is not set. Check config file."
-    return 1
-  fi
-  
-  mkdir -p "$PLUGIN_DATA_ROOT" >/dev/null 2>&1 || {
-    echo "Failed to create directory: $PLUGIN_DATA_ROOT"
-    return 1
-  }
+  # Ensure the data directory exists
+  mkdir -p "$PLUGIN_DATA_ROOT" 2>/dev/null || true
   
   # Check for AWS CLI
   if command -v aws >/dev/null 2>&1; then
@@ -90,11 +76,13 @@ plugin-install() {
 
   # Create service data directory
   mkdir -p "$PLUGIN_DATA_ROOT" || echo "Failed to create $PLUGIN_SERVICE data directory"
-  chown "${DOKKU_SYSTEM_USER}:${DOKKU_SYSTEM_GROUP}" "$PLUGIN_DATA_ROOT"
+  chown "${DOKKU_SYSTEM_USER:-dokku}:${DOKKU_SYSTEM_GROUP:-dokku}" "$PLUGIN_DATA_ROOT" 2>/dev/null || true
 
-  # Create service config directory  
-  mkdir -p "$PLUGIN_CONFIG_ROOT" || echo "Failed to create $PLUGIN_SERVICE config directory"
-  chown "${DOKKU_SYSTEM_USER}:${DOKKU_SYSTEM_GROUP}" "$PLUGIN_CONFIG_ROOT"
+  # Create service config directory if defined
+  if [[ -n "$PLUGIN_CONFIG_ROOT" ]]; then
+    mkdir -p "$PLUGIN_CONFIG_ROOT" || echo "Failed to create $PLUGIN_SERVICE config directory"
+    chown "${DOKKU_SYSTEM_USER:-dokku}:${DOKKU_SYSTEM_GROUP:-dokku}" "$PLUGIN_CONFIG_ROOT" 2>/dev/null || true
+  fi
 
   # Auto-detect and configure DNS provider
   echo "-----> Auto-detecting DNS provider capabilities..."
