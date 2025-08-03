@@ -10,7 +10,10 @@ detect_and_configure_provider() {
   local DETECTED_PROVIDERS=()
   local CONFIGURED_PROVIDER=""
   
-  # Ensure the data directory exists
+  # Debug and ensure the data directory exists
+  echo "DEBUG: DOKKU_LIB_ROOT=$DOKKU_LIB_ROOT"
+  echo "DEBUG: PLUGIN_DATA_ROOT=$PLUGIN_DATA_ROOT"
+  
   if [[ -z "$PLUGIN_DATA_ROOT" ]]; then
     echo "Failed to create DNS config directory"
     echo "PLUGIN_DATA_ROOT is not set. Check config file."
