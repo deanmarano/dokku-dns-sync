@@ -73,8 +73,8 @@ dns_global_report() {
   APPS_LIST=$(get_dns_managed_apps)
   
   if [[ -z "$APPS_LIST" ]]; then
-    dokku_log_warn "No apps are currently under DNS management"
-    dokku_log_info1 "Add an app to DNS management with: dokku $PLUGIN_COMMAND_PREFIX:add <app-name>"
+    dokku_log_warn "No apps have been added to DNS"
+    dokku_log_info1 "Add an app to DNS with: dokku $PLUGIN_COMMAND_PREFIX:add <app-name>"
     return 0
   fi
   
@@ -261,11 +261,10 @@ dns_report() {
   local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
   local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
   
-  # Check if app is under DNS management
-  if ! is_app_dns_managed "$APP"; then
-    dokku_log_warn "App '$APP' is not under DNS management"
-    dokku_log_info1 "Add to DNS management with: dokku $PLUGIN_COMMAND_PREFIX:add $APP"
-    return 0
+  # Check if app has been added to DNS
+  local APP_IS_ADDED=false
+  if is_app_dns_managed "$APP"; then
+    APP_IS_ADDED=true
   fi
   
   dokku_log_info2 "DNS Report for app: $APP"
@@ -315,6 +314,13 @@ dns_report() {
   # Display global configuration
   dokku_log_info1 "Global DNS Provider: $PROVIDER"
   dokku_log_info1 "Configuration Status: $CONFIG_STATUS"
+  
+  # Display DNS add status
+  if [[ "$APP_IS_ADDED" == "true" ]]; then
+    dokku_log_info1 "DNS Status: Added"
+  else
+    dokku_log_info1 "DNS Status: Not added (add with: dokku $PLUGIN_COMMAND_PREFIX:add $APP)"
+  fi
   
   echo
   dokku_log_info2 "Domain Analysis:"
@@ -380,9 +386,9 @@ dns_report() {
     
     # Try to get hosted zone if provider is AWS and ready
     local HOSTED_ZONE="-"
+    local ZONE_ID=""
     if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
       if declare -f "dns_provider_aws_get_hosted_zone_id" >/dev/null 2>&1; then
-        local ZONE_ID
         ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null || echo "")
         if [[ -n "$ZONE_ID" ]]; then
           # Get the zone name from AWS
@@ -395,8 +401,29 @@ dns_report() {
       fi
     fi
     
+    # Check domain status - consider both DNS add status and hosted zone
+    local DOMAIN_STATUS="Not added"
+    if [[ "$APP_IS_ADDED" == "true" ]]; then
+      # App has been added to DNS, check hosted zone status
+      if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+        if [[ -n "$ZONE_ID" ]]; then
+          DOMAIN_STATUS="Ready"
+        else
+          DOMAIN_STATUS="No hosted zone"
+        fi
+      elif [[ "$PROVIDER" != "None" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+        # For other providers, default to ready (they can implement their own logic)
+        DOMAIN_STATUS="Ready"
+      else
+        DOMAIN_STATUS="Provider not ready"
+      fi
+    else
+      # App has not been added to DNS
+      DOMAIN_STATUS="Not added"
+    fi
+    
     # Format and display the row
-    printf "%-30s %-8s %-20s %-12s %s\n" "$DOMAIN" "$DNS_EMOJI" "$SYNC_STATUS" "$PROVIDER" "$HOSTED_ZONE"
+    printf "%-30s %-8s %-20s %-12s %s\n" "$DOMAIN" "$DNS_EMOJI" "$DOMAIN_STATUS" "$PROVIDER" "$HOSTED_ZONE"
   done
   
   echo

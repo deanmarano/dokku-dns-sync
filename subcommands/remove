@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-remove-cmd() {
+  #E remove app from DNS management
+  #E dokku $PLUGIN_COMMAND_PREFIX:remove nextcloud
+  #E removes app from DNS management but does not delete existing DNS records
+  #E this only removes the app from the DNS tracking system
+  #E to clean up DNS records, use 'dokku $PLUGIN_COMMAND_PREFIX:sync' before removing
+  #A app, app to remove from DNS management
+  declare desc="remove app from $PLUGIN_SERVICE management"
+  local cmd="$PLUGIN_COMMAND_PREFIX:remove" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare APP="$1"
+
+  [[ -z "$APP" ]] && dokku_log_fail "Please specify an app name"
+  verify_app_name "$APP"
+  
+  # Check if app is currently added to DNS
+  if ! is_app_dns_managed "$APP"; then
+    dokku_log_warn "App '$APP' is not currently added to DNS"
+    dokku_log_info1 "Nothing to remove. Current status: not added"
+    return 0
+  fi
+  
+  dns_remove_app "$APP"
+}
+
+service-remove-cmd "$@"

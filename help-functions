@@ -11,7 +11,7 @@ is_implemented_command() {
   
   # All our subcommands are implemented
   case "$SUBCOMMAND" in
-    add|configure|report|sync|verify)
+    add|configure|remove|report|sync|verify)
       return 0
       ;;
     *)
@@ -68,6 +68,7 @@ fn-help-all() {
     echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:add myapp"
     echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:sync myapp"
     echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:report        # view all apps"
+    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:remove myapp  # remove from DNS"
     echo ''
     echo -e "dokku ${BOLD}${PLUGIN_COMMAND_PREFIX}${NORMAL} commands: (get help with ${CYAN}dokku ${PLUGIN_COMMAND_PREFIX}:help SUBCOMMAND${NORMAL})"
     echo ''

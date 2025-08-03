@@ -147,25 +147,57 @@ dns_add_app_domains() {
     return 0
   fi
   
-  dokku_log_info2 "Adding domains for app '$APP' to DNS management"
+  dokku_log_info2 "Adding domains for app '$APP' to DNS"
   
-  # Track this app as being under DNS management
+  # Track this app as being added to DNS
   local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
   mkdir -p "$PLUGIN_DATA_ROOT"
   
   # Add app to LINKS file if not already present
   if [[ ! -f "$LINKS_FILE" ]] || ! grep -q "^$APP$" "$LINKS_FILE" 2>/dev/null; then
     echo "$APP" >> "$LINKS_FILE"
-    dokku_log_info1 "App '$APP' added to DNS management"
+    dokku_log_info1 "App '$APP' added to DNS"
   else
-    dokku_log_info1 "App '$APP' already in DNS management, updating domains"
+    dokku_log_info1 "App '$APP' already added to DNS, updating domains"
   fi
   
   # Display the domains table with status information
   dns_display_domains_table "$APP" "${DOMAINS[@]}"
   
-  dokku_log_info1 "Domains have been registered for DNS management"
+  dokku_log_info1 "Domains have been added to DNS"
   dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+}
+
+dns_remove_app() {
+  local APP="$1"
+  local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
+  
+  dokku_log_info2 "Removing app '$APP' from DNS"
+  
+  # Check if LINKS file exists
+  if [[ ! -f "$LINKS_FILE" ]]; then
+    dokku_log_warn "No DNS tracking file found"
+    return 0
+  fi
+  
+  # Remove app from LINKS file
+  if grep -q "^$APP$" "$LINKS_FILE" 2>/dev/null; then
+    # Create a temporary file without this app
+    grep -v "^$APP$" "$LINKS_FILE" > "${LINKS_FILE}.tmp" || true
+    mv "${LINKS_FILE}.tmp" "$LINKS_FILE"
+    
+    dokku_log_info1 "App '$APP' removed from DNS"
+    dokku_log_info1 "Note: Existing DNS records were not deleted"
+    dokku_log_info1 "To clean up DNS records, run: dokku $PLUGIN_COMMAND_PREFIX:sync $APP (before removing next time)"
+  else
+    dokku_log_warn "App '$APP' was not found in DNS tracking"
+  fi
+  
+  # Clean up empty LINKS file
+  if [[ ! -s "$LINKS_FILE" ]]; then
+    rm -f "$LINKS_FILE"
+    dokku_log_info1 "No apps remaining in DNS - tracking file cleaned up"
+  fi
 }
 
 dns_display_domains_table() {
