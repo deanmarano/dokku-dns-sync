@@ -135,7 +135,7 @@ dns_global_report() {
     APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
     
     if [[ -n "$APP_DOMAINS" ]]; then
-      echo "$APP_DOMAINS" | while IFS= read -r DOMAIN; do
+      for DOMAIN in $APP_DOMAINS; do
         [[ -z "$DOMAIN" ]] && continue
         ALL_DOMAINS="$ALL_DOMAINS$APP:$DOMAIN\n"
         ((TOTAL_DOMAINS++))
@@ -159,7 +159,7 @@ dns_global_report() {
       printf "%-15s %-25s %-8s %-15s %-12s %s\n" "$APP" "(no domains)" "➖" "$SYNC_STATUS" "$PROVIDER" "-"
     else
       local FIRST_DOMAIN=true
-      echo "$APP_DOMAINS" | while IFS= read -r DOMAIN; do
+      for DOMAIN in $APP_DOMAINS; do
         [[ -z "$DOMAIN" ]] && continue
         
         # Get current DNS resolution
@@ -353,8 +353,8 @@ dns_report() {
     fi
   fi
   
-  # Analyze each domain
-  echo "$APP_DOMAINS" | while IFS= read -r DOMAIN; do
+  # Analyze each domain - split space-separated domains properly
+  for DOMAIN in $APP_DOMAINS; do
     [[ -z "$DOMAIN" ]] && continue
     
     # Get current DNS resolution

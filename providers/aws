@@ -206,8 +206,11 @@ dns_provider_aws_discover_existing_domains() {
     local APP_DOMAINS
     APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
     if [[ -n "$APP_DOMAINS" ]]; then
-      ALL_DOKKU_DOMAINS="$ALL_DOKKU_DOMAINS
-$APP_DOMAINS"
+      # Convert space-separated domains to newline-separated
+      for DOMAIN in $APP_DOMAINS; do
+        ALL_DOKKU_DOMAINS="$ALL_DOKKU_DOMAINS
+$DOMAIN"
+      done
     fi
   done <<< "$APPS_LIST"
   
@@ -215,8 +218,11 @@ $APP_DOMAINS"
   local GLOBAL_DOMAINS
   GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
   if [[ -n "$GLOBAL_DOMAINS" ]]; then
-    ALL_DOKKU_DOMAINS="$ALL_DOKKU_DOMAINS
-$GLOBAL_DOMAINS"
+    # Convert space-separated global domains to newline-separated
+    for DOMAIN in $GLOBAL_DOMAINS; do
+      ALL_DOKKU_DOMAINS="$ALL_DOKKU_DOMAINS
+$DOMAIN"
+    done
   fi
   
   # Remove empty lines and duplicates
@@ -333,7 +339,7 @@ dns_provider_aws_sync_app() {
   dokku_log_info2 "Syncing domains for app '$APP' to server IP: $SERVER_IP"
   
   # Sync each domain
-  echo "$APP_DOMAINS" | while IFS= read -r DOMAIN; do
+  for DOMAIN in $APP_DOMAINS; do
     [[ -z "$DOMAIN" ]] && continue
     dokku_log_info1 "Syncing domain: $DOMAIN"
     dns_provider_aws_create_record "$DOMAIN" "A" "$SERVER_IP"

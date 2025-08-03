@@ -9,7 +9,15 @@ source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
 
 get_app_domains() {
   local APP="$1"
-  dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo ""
+  local domains_output
+  domains_output=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
+  
+  # Convert space-separated domains to newline-separated for proper array processing
+  if [[ -n "$domains_output" ]]; then
+    for domain in $domains_output; do
+      echo "$domain"
+    done
+  fi
 }
 
 dns_configure_global() {
@@ -111,8 +119,8 @@ dns_add_app_domains() {
       return 0
     fi
     
-    # Convert to array
-    readarray -t DOMAINS <<< "$APP_DOMAINS"
+    # Convert space-separated domains to array
+    read -ra DOMAINS <<< "$APP_DOMAINS"
   fi
   
   if [[ ${#DOMAINS[@]} -eq 0 ]]; then
