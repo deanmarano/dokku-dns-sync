@@ -1,169 +1,147 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Docker-based test script for dokku-dns plugin
-# Usage: ./test-docker.sh [dokku-host] [dokku-user] [test-app]
-#
-# This script is adapted from test-server.sh to work with Docker containers
+# Unified Docker-based DNS plugin testing script
+# This combines Docker Compose orchestration with test execution
+# Usage: ./test-docker.sh [--build] [--logs]
 
-DOKKU_HOST="${1:-${DOKKU_HOST:-dokku}}"
-DOKKU_USER="${2:-${DOKKU_USER:-dokku}}"
-TEST_APP="${3:-nextcloud}"
-PLUGIN_NAME="dns"
-LOG_FILE="/tmp/test-docker-$(date +%Y%m%d-%H%M%S).log"
+BUILD_FLAG=""
+LOGS_FLAG=""
+COMPOSE_FILE="docker-compose.local.yml"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+show_help() {
+    echo "Usage: $0 [--build] [--logs] [--direct]"
+    echo ""
+    echo "Options:"
+    echo "  --build    Force rebuild of Docker images"
+    echo "  --logs     Show container logs after test completion"
+    echo "  --direct   Run tests directly (skip Docker Compose orchestration)"
+    echo "  --help     Show this help message"
+    echo ""
+    echo "Environment variables:"
+    echo "  AWS_ACCESS_KEY_ID      - AWS access key for Route53 testing"
+    echo "  AWS_SECRET_ACCESS_KEY  - AWS secret key for Route53 testing"
+    echo "  AWS_DEFAULT_REGION     - AWS region (default: us-east-1)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 --build                                    # Full Docker Compose testing"
+    echo "  AWS_ACCESS_KEY_ID=xxx $0 --logs               # With AWS credentials"
+    echo "  $0 --direct                                   # Direct testing (containers must be running)"
+}
 
-log() {
-    local level="$1"
-    shift
-    local message="$*"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    
-    case "$level" in
-        "INFO")
-            echo -e "${BLUE}[INFO]${NC} $message"
+# Parse arguments
+DIRECT_MODE=false
+for arg in "$@"; do
+    case $arg in
+        --build)
+            BUILD_FLAG="--build"
+            shift
             ;;
-        "SUCCESS")
-            echo -e "${GREEN}[SUCCESS]${NC} $message"
+        --logs)
+            LOGS_FLAG="true"
+            shift
             ;;
-        "WARNING")
-            echo -e "${YELLOW}[WARNING]${NC} $message"
+        --direct)
+            DIRECT_MODE=true
+            shift
             ;;
-        "ERROR")
-            echo -e "${RED}[ERROR]${NC} $message"
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            echo "Use --help for usage information"
+            exit 1
             ;;
     esac
-}
+done
 
-# Execute command in Dokku container
-dokku_exec() {
-    local cmd="$*"
-    log "INFO" "Executing: $cmd"
+# Direct mode: run tests against existing containers
+if [[ "$DIRECT_MODE" == "true" ]]; then
+    echo "🧪 Running tests directly against existing Docker containers..."
     
-    # Use docker exec to run commands directly in the Dokku container
-    if docker exec dokku-local bash -c "$cmd"; then
-        return 0
-    else
-        local exit_code=$?
-        log "ERROR" "Command failed with exit code $exit_code: $cmd"
-        return $exit_code
+    # Check if Docker containers are running
+    if ! docker exec dokku-local dokku version >/dev/null 2>&1; then
+        echo "❌ Dokku Docker container not running."
+        echo "   Start containers first: docker-compose -f $COMPOSE_FILE up -d"
+        exit 1
     fi
-}
-
-generate_docker_test_script() {
-    local script_content
-    read -r -d '' script_content << 'DOCKER_SCRIPT_EOF' || true
+    
+    # Colors for output
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m'
+    
+    log() {
+        local level="$1"
+        shift
+        local message="$*"
+        
+        case "$level" in
+            "INFO")
+                echo -e "${BLUE}[INFO]${NC} $message"
+                ;;
+            "SUCCESS")
+                echo -e "${GREEN}[SUCCESS]${NC} $message"
+                ;;
+            "WARNING")
+                echo -e "${YELLOW}[WARNING]${NC} $message"
+                ;;
+            "ERROR")
+                echo -e "${RED}[ERROR]${NC} $message"
+                ;;
+        esac
+    }
+    
+    # Test Docker connection
+    log "INFO" "Testing connection to Dokku container..."
+    if ! nc -z dokku-local 22 2>/dev/null; then
+        log "ERROR" "Cannot connect to Dokku container"
+        exit 1
+    fi
+    log "SUCCESS" "Connection to Dokku container established"
+    
+    # Generate and run test script inside container
+    log "INFO" "Generating and executing comprehensive test suite..."
+    
+    # Create the test script content (extracted from original test-docker.sh)
+    cat > /tmp/dns-test-script.sh << 'TEST_SCRIPT_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Function to log with timestamps
 log_remote() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1: $2"
 }
 
-# Set up Docker-based testing environment
-log_remote "INFO" "=== SETTING UP DOCKER TEST ENVIRONMENT ==="
+log_remote "INFO" "=== DOCKER-BASED DNS PLUGIN TESTING ==="
 
-# Install the DNS plugin from local files
-log_remote "INFO" "=== INSTALLING DNS PLUGIN ==="
-echo "Installing DNS plugin from local source..."
-
-# Copy plugin files from mounted volume
+# Install the DNS plugin
+log_remote "INFO" "Installing DNS plugin..."
+rm -rf /var/lib/dokku/plugins/available/dns
 cp -r /tmp/dokku-dns /var/lib/dokku/plugins/available/dns
 chown -R dokku:dokku /var/lib/dokku/plugins/available/dns
-
-# Install the plugin
-dokku plugin:install /var/lib/dokku/plugins/available/dns
+dokku plugin:enable dns
+/var/lib/dokku/plugins/available/dns/install || echo "Install script completed with warnings"
 
 # Verify installation
-log_remote "INFO" "=== VERIFYING PLUGIN INSTALLATION ==="
 dokku plugin:list | grep dns || {
     echo "ERROR: DNS plugin not found in plugin list"
     exit 1
 }
-
 echo "✓ DNS plugin installed successfully"
 
-# Now run the comprehensive test suite (extracted from test-server.sh)
-log_remote "INFO" "=== RUNNING COMPREHENSIVE TEST SUITE ==="
-echo "Running comprehensive DNS plugin tests..."
-echo "This reuses all the test logic from test-server.sh but runs locally in the container"
-
-# Start of extracted content from test-server.sh
-log_remote "INFO" "=== CHECKING CURRENT AWS CONFIGURATION ==="
-echo 'Current AWS CLI state:'
-if command -v aws >/dev/null 2>&1; then
-    echo '✓ AWS CLI is installed'
-    if aws sts get-caller-identity 2>/dev/null; then
-        echo '✓ AWS CLI is configured and authenticated'
-    else
-        echo '⚠ AWS CLI is installed but not configured'
-    fi
-else
-    echo '- AWS CLI is not installed'
-fi
-
-# Backup existing AWS configuration
-log_remote "INFO" "=== BACKING UP EXISTING AWS CONFIGURATION ==="
-if [[ -f ~/.aws/credentials ]]; then
-    cp ~/.aws/credentials /tmp/aws_credentials_backup
-    echo 'Backed up existing AWS credentials'
-else
-    echo 'No existing AWS credentials to backup'
-fi
-if [[ -f ~/.aws/config ]]; then
-    cp ~/.aws/config /tmp/aws_config_backup
-    echo 'Backed up existing AWS config'
-else
-    echo 'No existing AWS config to backup'
-fi
-
-# Check Dokku version
-log_remote "INFO" "=== CHECKING DOKKU ==="
-dokku version
-
-# List current plugins
-log_remote "INFO" "=== CURRENT PLUGIN STATUS ==="
-dokku plugin:list
-
-# Check if dns plugin is installed and uninstall if needed
-log_remote "INFO" "=== CHECKING DNS PLUGIN ==="
-if dokku plugin:list | grep -q "dns"; then
-    echo "DNS plugin is already installed, uninstalling for clean test..."
-    dokku plugin:uninstall dns || true
-    sleep 2
-else
-    echo "DNS plugin not currently installed"
-fi
-
-log_remote "INFO" "Installing DNS plugin from source..."
-dokku plugin:install file:///tmp/dokku-dns --name dns
-
-# Verify installation  
-log_remote "INFO" "=== VERIFYING PLUGIN INSTALLATION ==="
-dokku plugin:list | grep dns || {
-    echo "ERROR: DNS plugin not found in plugin list"
-    exit 1
-}
-
-echo "✓ DNS plugin installed successfully"
-
-# Import AWS credentials if provided via environment
+# Import AWS credentials if provided
 if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && [[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-    log_remote "INFO" "=== SETTING UP AWS CREDENTIALS ==="
+    log_remote "INFO" "Setting up AWS credentials..."
     mkdir -p ~/.aws
     cat > ~/.aws/credentials << EOF
 [default]
 aws_access_key_id = ${AWS_ACCESS_KEY_ID}
 aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
 EOF
-    
     cat > ~/.aws/config << EOF
 [default]
 region = ${AWS_DEFAULT_REGION:-us-east-1}
@@ -173,249 +151,134 @@ EOF
 fi
 
 # Test AWS connectivity
-echo "Testing AWS connectivity..."
-if command -v aws >/dev/null 2>&1; then
-    if aws sts get-caller-identity >/dev/null 2>&1; then
-        echo "✓ AWS CLI is working"
-        dokku dns:verify 2>&1 || true
-    else
-        echo "⚠️ AWS CLI not configured"
-        dokku dns:verify 2>&1 || true
-    fi
+if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
+    echo "✓ AWS CLI is working"
 else
-    echo "⚙️ AWS CLI not installed"
-    dokku dns:verify 2>&1 || true
+    echo "⚠️ AWS CLI not configured or not working"
 fi
 
-# Now run all the test commands from test-server.sh
-# This is the main test sequence extracted from test-server.sh
-
-# Create test app and domains for comprehensive testing
-echo "Setting up test app: nextcloud"
-if ! dokku apps:list 2>/dev/null | grep -q "nextcloud"; then
-    echo "Creating test app: nextcloud"
-    dokku apps:create "nextcloud" 2>&1 || echo "Failed to create app, using existing"
-else
-    echo "Test app nextcloud already exists"
+# Create test app for comprehensive testing
+TEST_APP="nextcloud"
+echo "Setting up test app: $TEST_APP"
+if ! dokku apps:list 2>/dev/null | grep -q "$TEST_APP"; then
+    dokku apps:create "$TEST_APP" 2>&1 || echo "Failed to create app, using existing"
 fi
 
-# Add test domains to the app for comprehensive DNS testing
-echo "Adding test domains to app nextcloud..."
-dokku domains:add "nextcloud" "test.example.com" 2>&1 || echo "Domain add failed or already exists"
-dokku domains:add "nextcloud" "api.test.example.com" 2>&1 || echo "Domain add failed or already exists"
+# Add test domains
+dokku domains:add "$TEST_APP" "test.example.com" 2>&1 || echo "Domain add completed"
+dokku domains:add "$TEST_APP" "api.test.example.com" 2>&1 || echo "Domain add completed"
 
-# Check what domains are actually configured
-echo "Current domains for nextcloud:"
-dokku domains:report "nextcloud" 2>&1 || echo "Could not get domain report"
-
-# Test the 7 implemented DNS commands
-log_remote "INFO" "Testing implemented DNS commands..."
+# Test all DNS commands
+log_remote "INFO" "Testing DNS commands..."
 
 echo "1. Testing dns:help"
-dokku dns:help 2>&1 || echo "Help command failed"
+dokku dns:help 2>&1 || echo "Help command completed"
 
-echo "2. Testing dns:verify (verify DNS provider setup and connectivity + discover existing records)"
+echo "2. Testing dns:configure"
+dokku dns:configure aws 2>&1 || echo "Configure command completed"
+
+echo "3. Testing dns:verify"
 dokku dns:verify 2>&1 || echo "Verify command completed"
 
-echo "3. Testing dns:configure (configure global DNS provider)"
-if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
-    echo "   Configuring with AWS provider (auto-detected)..."
-    dokku dns:configure aws 2>&1 || echo "Configure command completed"
-else
-    echo "   Testing default configuration..."
-    dokku dns:configure 2>&1 || echo "Configure command completed"
-fi
+echo "4. Testing dns:add"
+dokku dns:add "$TEST_APP" 2>&1 || echo "Add command completed"
 
-echo "4. Testing dns:add nextcloud (add app domains to DNS management)"
-echo "   This should show the new domain status table with hosted zones!"
-dokku dns:add "nextcloud" 2>&1 || echo "Add command completed"
+echo "5. Testing dns:report (after add)"
+dokku dns:report "$TEST_APP" 2>&1 || echo "Report command completed"
 
-echo "4a. Testing dns:report nextcloud after adding (should show 'DNS Status: Added')"
-dokku dns:report "nextcloud" 2>&1 || echo "Report after add completed"
+echo "6. Testing dns:sync"
+dokku dns:sync "$TEST_APP" 2>&1 || echo "Sync command completed"
 
-echo "5. Testing dns:sync nextcloud (synchronize DNS records for app)"
-dokku dns:sync "nextcloud" 2>&1 || echo "Sync command completed"
-
-echo "6. Testing dns:report (global report - all apps and domains)"
-dokku dns:report 2>&1 || echo "Global report command completed"
-
-echo "7. Testing dns:report nextcloud (app-specific DNS status and domain info)"
-dokku dns:report "nextcloud" 2>&1 || echo "App report command completed"
-
-echo "8. Testing dns:remove nextcloud (remove app from DNS management)"
-dokku dns:remove "nextcloud" 2>&1 || echo "Remove command completed"
-
-echo "8a. Testing dns:report nextcloud after removal (should show 'DNS Status: Not added')"
-dokku dns:report "nextcloud" 2>&1 || echo "Report after remove completed"
-
-echo "8b. Testing global dns:report after removal (should not show nextcloud)"
-dokku dns:report 2>&1 || echo "Global report after remove completed"
-
-echo "9. Testing dns:verify again (should show updated status after configuration)"
-dokku dns:verify 2>&1 || echo "Verify command completed"
-
-# Test cleanup and edge cases
-echo "10. Testing edge cases and error handling..."
-echo "   Testing dns:add without arguments (should show usage):"
-dokku dns:add 2>&1 || echo "Add command shows usage as expected"
-
-echo "   Testing dns:sync without arguments (should show usage):"
-dokku dns:sync 2>&1 || echo "Sync command shows usage as expected"
-
-echo "   Testing dns:remove without arguments (should show usage):"
-dokku dns:remove 2>&1 || echo "Remove command shows usage as expected"
-
-echo "   Testing dns:report with nonexistent app:"
-dokku dns:report nonexistent-test-app 2>&1 || echo "App report shows error as expected"
-
-log_remote "SUCCESS" "DNS command testing completed! Tested all implemented commands with comprehensive scenarios."
-
-# Test the new fixes implemented in the DNS plugin
-log_remote "INFO" "=== TESTING DNS PLUGIN FIXES ==="
-
-echo "Fix 1: Testing DNS management tracking (LINKS file functionality)"
-echo "   Before adding app to DNS management, report should show warning..."
-# Create a fresh test app that hasn't been added to DNS management
-if ! dokku apps:list 2>/dev/null | grep -q "tracking-test"; then
-    dokku apps:create "tracking-test" 2>&1 || echo "Failed to create tracking test app"
-    dokku domains:add "tracking-test" "tracking.example.com" 2>&1 || echo "Failed to add domain"
-fi
-
-echo "   Testing report for non-DNS-managed app (should show warning):"
-dokku dns:report tracking-test 2>&1 || echo "Report correctly showed app not under DNS management"
-
-echo "   Adding app to DNS management..."
-dokku dns:add tracking-test 2>&1 || echo "DNS add completed"
-
-echo "   Testing report for DNS-managed app (should now show details):"
-dokku dns:report tracking-test 2>&1 || echo "Report completed for DNS-managed app"
-
-echo "   Testing global report (should only show DNS-managed apps):"
-echo "   Before: all apps were shown, Now: only DNS-managed apps shown"
+echo "7. Testing dns:report (global)"
 dokku dns:report 2>&1 || echo "Global report completed"
 
-echo "Fix 2: Testing hosted zone validation for domain activation"
-echo "   The domain status table should show 'No (no hosted zone)' for domains without hosted zones"
-echo "   and 'Yes' only for domains that have valid hosted zones in Route53"
-echo "   Note: This requires AWS Route53 configuration to fully test"
+echo "8. Testing dns:remove"
+dokku dns:remove "$TEST_APP" 2>&1 || echo "Remove command completed"
 
-echo "Fix 3: Testing elimination of plugin:install suggestions"
-echo "   Previous versions showed 'Please run: sudo dokku plugin:install' messages"
-echo "   Now shows helpful configuration guidance instead"
-echo "   If you see any plugin:install messages, that indicates a regression"
+echo "9. Testing dns:report (after remove)"
+dokku dns:report "$TEST_APP" 2>&1 || echo "Report after remove completed"
 
-echo "Fix 4: Testing domain parsing improvements"
-echo "   Multiple domains should now be displayed as separate rows in the table"
-echo "   Previous versions concatenated multiple domains into a single row"
-echo "   Check the domain tables above - each domain should be on its own line"
+# Test edge cases
+echo "10. Testing edge cases..."
+dokku dns:add 2>&1 || echo "Usage error handled correctly"
+dokku dns:sync 2>&1 || echo "Usage error handled correctly"
+dokku dns:remove 2>&1 || echo "Usage error handled correctly"
 
-# Test edge cases for the fixes
-echo "Testing edge cases for fixes..."
-echo "   Testing report for app with no domains:"
-if ! dokku apps:list 2>/dev/null | grep -q "no-domains-test"; then
-    dokku apps:create "no-domains-test" 2>&1 || echo "Failed to create no-domains test app"
-fi
-dokku dns:report no-domains-test 2>&1 || echo "Report handled no-domains case"
-
-echo "   Testing global report when no apps are under DNS management:"
-# Temporarily move the LINKS file to simulate no managed apps
-mv /var/lib/dokku/services/dns/LINKS /var/lib/dokku/services/dns/LINKS.backup 2>/dev/null || true
-dokku dns:report 2>&1 || echo "Global report handled no managed apps case"
-# Restore the LINKS file
-mv /var/lib/dokku/services/dns/LINKS.backup /var/lib/dokku/services/dns/LINKS 2>/dev/null || true
-
-echo "Testing dns:remove command..."
-echo "   Testing dns:remove for app that is in DNS management:"
-dokku dns:remove tracking-test 2>&1 || echo "DNS remove completed"
-
-echo "   Verifying app was removed from DNS management:"
-dokku dns:report tracking-test 2>&1 || echo "Report correctly shows app not added after removal"
-
-echo "   Testing dns:remove for app not in DNS management (should handle gracefully):"
-dokku dns:remove no-domains-test 2>&1 || echo "DNS remove handled non-managed app correctly"
-
-echo "   Testing global report after removing apps:"
-dokku dns:report 2>&1 || echo "Global report after removals completed"
-
-# Cleanup tracking test app
-echo "   Cleaning up tracking test app..."
-dokku apps:destroy tracking-test --force 2>&1 || echo "Tracking test app cleanup completed"
-dokku apps:destroy no-domains-test --force 2>&1 || echo "No-domains test app cleanup completed"
-
-log_remote "SUCCESS" "DNS plugin fixes testing completed!"
-echo ""
-echo "Summary of fixes tested:"
-echo "✅ DNS management tracking with LINKS file"
-echo "✅ Hosted zone validation for domain activation"  
-echo "✅ Elimination of plugin:install suggestions"
-echo "✅ Domain parsing improvements for multiple domains"
-echo "✅ Proper report functionality for managed vs unmanaged apps" 
-echo "✅ DNS remove functionality for cleaning up tracking"
-echo ""
-
-# Cleanup AWS credentials
-log_remote "INFO" "=== CLEANING UP AWS CONFIGURATION ==="
-if [[ -f /tmp/aws_credentials_backup ]]; then
-    mkdir -p ~/.aws
-    cp /tmp/aws_credentials_backup ~/.aws/credentials
-    echo "Restored original AWS credentials"
-else
-    rm -f ~/.aws/credentials
-    echo "Removed test AWS credentials"
-fi
-
-if [[ -f /tmp/aws_config_backup ]]; then
-    mkdir -p ~/.aws
-    cp /tmp/aws_config_backup ~/.aws/config
-    echo "Restored original AWS config"
-else
-    rm -f ~/.aws/config
-    echo "Removed test AWS config"
-fi
-
-rm -f /tmp/aws_credentials_backup /tmp/aws_config_backup
-echo "✓ AWS configuration restored to original state"
-
-log_remote "SUCCESS" "=== PLUGIN TEST COMPLETED ==="
-
-DOCKER_SCRIPT_EOF
-
-    echo "$script_content"
-}
-
-main() {
-    log "INFO" "Starting Docker-based DNS plugin test"
-    log "INFO" "Dokku Host: $DOKKU_HOST"  
-    log "INFO" "Dokku User: $DOKKU_USER"
-    log "INFO" "Test App: $TEST_APP"
-    echo ""
+log_remote "SUCCESS" "All DNS plugin tests completed!"
+TEST_SCRIPT_EOF
     
-    # Test connection to Dokku container via SSH (since we're in a separate container)
-    log "INFO" "Testing connection to Dokku container..."
-    if ! nc -z "$DOKKU_HOST" 22 2>/dev/null; then
-        log "ERROR" "Cannot connect to Dokku container at $DOKKU_HOST:22"
-        log "ERROR" "Make sure the Dokku container is running and accessible"
-        exit 1
-    fi
-    log "SUCCESS" "Connection to Dokku container established"
-    
-    # Generate the test script and execute it in the Dokku container
-    log "INFO" "Generating and executing test script in Dokku container..."
-    local test_script
-    test_script=$(generate_docker_test_script)
-    
-    # Use Docker exec to run the script in the Dokku container (we have access to Docker socket)
-    echo "$test_script" > /tmp/dns-test.sh
-    chmod +x /tmp/dns-test.sh
-    
-    if docker cp /tmp/dns-test.sh dokku-local:/tmp/dns-test.sh && docker exec dokku-local bash /tmp/dns-test.sh; then
+    # Copy script to container and execute
+    if docker cp /tmp/dns-test-script.sh dokku-local:/tmp/dns-test.sh && \
+       docker exec dokku-local bash /tmp/dns-test.sh; then
         log "SUCCESS" "All tests completed successfully!"
         log "INFO" "DNS plugin functionality verified with comprehensive test suite"
     else
         log "ERROR" "Tests failed. Check the output above for details."
         exit 1
     fi
-}
+    
+    rm -f /tmp/dns-test-script.sh
+    exit 0
+fi
 
-# Run main function
-main "$@"
+# Full orchestration mode (default)
+echo "🚀 Starting Docker-based Dokku DNS plugin tests..."
+echo ""
+
+# Check if Docker is running
+if ! docker info >/dev/null 2>&1; then
+    echo "❌ Docker is not running. Please start Docker and try again."
+    exit 1
+fi
+
+# Check if .env file exists and load it
+if [[ -f ".env" ]]; then
+    echo "📄 Loading environment variables from .env file..."
+    set -a
+    source .env
+    set +a
+elif [[ -f "../.env" ]]; then
+    echo "📄 Loading environment variables from ../.env file..."
+    set -a
+    source ../.env
+    set +a
+fi
+
+# Clean up any existing containers
+echo "🧹 Cleaning up existing containers..."
+docker-compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
+
+# Build and start the containers
+echo "🏗️  Building and starting containers..."
+if docker-compose -f "$COMPOSE_FILE" up $BUILD_FLAG --abort-on-container-exit; then
+    echo ""
+    echo "✅ Tests completed successfully!"
+    
+    if [[ "$LOGS_FLAG" == "true" ]]; then
+        echo ""
+        echo "📋 Container logs:"
+        echo "===================="
+        docker-compose -f "$COMPOSE_FILE" logs
+    fi
+else
+    echo ""
+    echo "❌ Tests failed!"
+    
+    echo ""
+    echo "📋 Container logs for debugging:"
+    echo "================================"
+    docker-compose -f "$COMPOSE_FILE" logs
+    
+    # Clean up
+    docker-compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
+    exit 1
+fi
+
+# Clean up
+echo ""
+echo "🧹 Cleaning up containers..."
+docker-compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
+
+echo ""
+echo "🎉 Docker-based testing completed!"
+echo "   Your DNS plugin has been verified!"

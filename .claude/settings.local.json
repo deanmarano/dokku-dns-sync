@@ -13,7 +13,13 @@
       "Bash(bash:*)",
       "Bash(chmod:*)",
       "Bash(./test-fixes.sh:*)",
-      "Bash(./test-docker-local.sh:*)"
+      "Bash(./test-docker-local.sh:*)",
+      "Bash(./run-docker-tests.sh:*)",
+      "Bash(docker-compose:*)",
+      "Bash(./test-bats-docker.sh:*)",
+      "Bash(./test-bats-docker-direct.sh:*)",
+      "Bash(docker exec:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

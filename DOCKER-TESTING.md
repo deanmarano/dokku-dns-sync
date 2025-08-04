@@ -11,19 +11,19 @@ This directory contains Docker-based testing infrastructure that allows you to t
 ### Basic Usage
 ```bash
 # Run all tests against local Docker Dokku
-./run-docker-tests.sh
+./test-docker.sh
 
 # Force rebuild and show logs
-./run-docker-tests.sh --build --logs
+./test-docker.sh --build --logs
 
 # With AWS credentials for Route53 testing
-AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy ./run-docker-tests.sh
+AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy ./test-docker.sh
 
 # Or create a .env file
 echo "AWS_ACCESS_KEY_ID=your_key_here" > .env
 echo "AWS_SECRET_ACCESS_KEY=your_secret_here" >> .env
 echo "AWS_DEFAULT_REGION=us-east-1" >> .env
-./run-docker-tests.sh
+./test-docker.sh
 ```
 
 ## What This Gives You
@@ -170,7 +170,7 @@ dokku plugin:list
 ```bash
 # Force cleanup and restart
 docker-compose -f docker-compose.local.yml down -v
-./run-docker-tests.sh --build
+./test-docker.sh --build
 ```
 
 ### AWS Credentials
@@ -200,7 +200,7 @@ docker exec dokku-local dokku dns:help
 ```bash
 # Edit test-docker.sh to add custom test cases
 # Then rebuild and run
-./run-docker-tests.sh --build
+./test-docker.sh --build
 ```
 
 This Docker-based testing approach provides a comprehensive, reliable way to validate the DNS plugin functionality without requiring external infrastructure. The Docker setup specifically tests and verifies the domain parsing fix where multiple domains like `"nextcloud.deanoftech.com test.example.com api.test.example.com"` are now properly separated instead of being treated as a single domain string.
