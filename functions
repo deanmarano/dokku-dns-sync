@@ -250,10 +250,10 @@ dns_add_app_domains() {
           ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null)
           if [[ -n "$ZONE_ID" ]]; then
             VALID_DOMAINS+=("$DOMAIN")
-            dokku_log_verbose "✓ $DOMAIN has hosted zone: $ZONE_ID"
+            dokku_log_info1 "✓ $DOMAIN has hosted zone: $ZONE_ID"
           else
             SKIPPED_DOMAINS+=("$DOMAIN")
-            dokku_log_verbose "✗ $DOMAIN has no hosted zone"
+            dokku_log_info1 "✗ $DOMAIN has no hosted zone"
           fi
         done
       else
