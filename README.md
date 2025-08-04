@@ -1,4 +1,4 @@
-# dokku dns [![Build Status](https://img.shields.io/github/actions/workflow/status/dokku/dokku-dns/ci.yml?branch=master&style=flat-square "Build Status")](https://github.com/dokku/dokku-dns/actions/workflows/ci.yml?query=branch%3Amaster) [![IRC Network](https://img.shields.io/badge/irc-libera-blue.svg?style=flat-square "IRC Libera")](https://webchat.libera.chat/?channels=dokku)
+# dokku dns [![Build Status](https://img.shields.io/github/actions/workflow/status/dokku/dokku-dns/ci.yml?branch=main&style=flat-square "Build Status")](https://github.com/dokku/dokku-dns/actions/workflows/ci.yml?query=branch%3Amain) [![IRC Network](https://img.shields.io/badge/irc-libera-blue.svg?style=flat-square "IRC Libera")](https://webchat.libera.chat/?channels=dokku)
 
 A dns plugin for dokku. Currently defaults to installing [busybox 1.37.0-uclibc](https://hub.docker.com/_/busybox/).
 

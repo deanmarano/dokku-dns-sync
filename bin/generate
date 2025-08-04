@@ -61,7 +61,7 @@ def header(service):
     return " ".join(
         [
             f"# dokku {service}",
-            f'[![Build Status](https://img.shields.io/github/actions/workflow/status/dokku/dokku-{service}/ci.yml?branch=master&style=flat-square "Build Status")](https://github.com/dokku/dokku-{service}/actions/workflows/ci.yml?query=branch%3Amaster)',
+            f'[![Build Status](https://img.shields.io/github/actions/workflow/status/dokku/dokku-{service}/ci.yml?branch=main&style=flat-square "Build Status")](https://github.com/dokku/dokku-{service}/actions/workflows/ci.yml?query=branch%3Amain)',
             f'[![IRC Network](https://img.shields.io/badge/irc-libera-blue.svg?style=flat-square "IRC Libera")](https://webchat.libera.chat/?channels=dokku)',
         ]
     )
