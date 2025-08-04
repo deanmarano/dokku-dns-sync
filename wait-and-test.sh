@@ -34,14 +34,14 @@ done
 log "INFO" "Waiting additional 10 seconds for Dokku to fully initialize..."
 sleep 10
 
-# Set up SSH key if needed (for container-to-container communication)
-if [ ! -f ~/.ssh/id_rsa ]; then
-    log "INFO" "Generating SSH key for container communication..."
-    mkdir -p ~/.ssh
-    ssh-keygen -t rsa -f ~/.ssh/id_rsa -N "" -q
-    chmod 600 ~/.ssh/id_rsa
-    chmod 700 ~/.ssh
-fi
+# Set up SSH key using pre-generated test key (for container-to-container communication)
+log "INFO" "Setting up SSH key for container communication..."
+mkdir -p ~/.ssh
+cp /plugin/tests/test-keys/test_rsa ~/.ssh/id_rsa
+cp /plugin/tests/test-keys/test_rsa.pub ~/.ssh/id_rsa.pub
+chmod 600 ~/.ssh/id_rsa
+chmod 644 ~/.ssh/id_rsa.pub
+chmod 700 ~/.ssh
 
 # Add Dokku host to known hosts
 log "INFO" "Adding Dokku host to known hosts..."
