@@ -44,12 +44,21 @@ dns_provider_aws_get_hosted_zone_id() {
   # If no exact match, try to find the parent domain's hosted zone
   # For example: if domain is "app.example.com", try "example.com"
   local PARENT_DOMAIN="$DOMAIN"
-  while [[ "$PARENT_DOMAIN" == *.* ]]; do
+  local MAX_ITERATIONS=10  # Prevent infinite loops
+  local ITERATION=0
+  
+  while [[ "$PARENT_DOMAIN" == *.* ]] && [[ $ITERATION -lt $MAX_ITERATIONS ]]; do
     local PREV_DOMAIN="$PARENT_DOMAIN"
     PARENT_DOMAIN="${PARENT_DOMAIN#*.}"  # Remove first subdomain
+    ((ITERATION++))
     
     # Prevent infinite loop if domain doesn't change
     if [[ "$PARENT_DOMAIN" == "$PREV_DOMAIN" ]]; then
+      break
+    fi
+    
+    # Skip single-character or very short domains
+    if [[ ${#PARENT_DOMAIN} -lt 4 ]]; then
       break
     fi
     
