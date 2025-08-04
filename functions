@@ -156,7 +156,75 @@ dns_add_app_domains() {
     PROVIDER="$(cat "$PROVIDER_FILE")"
   fi
   
-  # Filter domains to only include those with hosted zones
+  # Check which domains are already added to DNS for this app
+  local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
+  local ALREADY_ADDED_DOMAINS=()
+  local NEW_DOMAINS=()
+  
+  # Get list of already added domains for this app
+  if [[ -f "$APP_DOMAINS_FILE" ]]; then
+    while IFS= read -r domain; do
+      [[ -n "$domain" ]] && ALREADY_ADDED_DOMAINS+=("$domain")
+    done < "$APP_DOMAINS_FILE"
+  fi
+  
+  # Separate already-added domains from new domains
+  for DOMAIN in "${DOMAINS[@]}"; do
+    [[ -z "$DOMAIN" ]] && continue
+    
+    local IS_ALREADY_ADDED=false
+    for ADDED_DOMAIN in "${ALREADY_ADDED_DOMAINS[@]}"; do
+      if [[ "$DOMAIN" == "$ADDED_DOMAIN" ]]; then
+        IS_ALREADY_ADDED=true
+        break
+      fi
+    done
+    
+    if [[ "$IS_ALREADY_ADDED" == true ]]; then
+      # Domain is already added, don't process it again
+      continue
+    else
+      NEW_DOMAINS+=("$DOMAIN")
+    fi
+  done
+  
+  # Show status of already-added domains
+  if [[ ${#ALREADY_ADDED_DOMAINS[@]} -gt 0 ]]; then
+    dokku_log_info1 "Already added domains for app '$APP':"
+    for DOMAIN in "${ALREADY_ADDED_DOMAINS[@]}"; do
+      # Only show if it's in the current request
+      local SHOW_DOMAIN=false
+      for REQUESTED_DOMAIN in "${DOMAINS[@]}"; do
+        if [[ "$DOMAIN" == "$REQUESTED_DOMAIN" ]]; then
+          SHOW_DOMAIN=true
+          break
+        fi
+      done
+      
+      if [[ "$SHOW_DOMAIN" == true ]]; then
+        dokku_log_info1 "  ✓ $DOMAIN (already in DNS management)"
+      fi
+    done
+    echo
+  fi
+  
+  # If no new domains to add, show message and exit
+  if [[ ${#NEW_DOMAINS[@]} -eq 0 ]]; then
+    if [[ ${#ALREADY_ADDED_DOMAINS[@]} -gt 0 ]]; then
+      dokku_log_info1 "All requested domains are already added to DNS management"
+    else
+      dokku_log_warn "No domains to add for app: $APP"
+    fi
+    return 0
+  fi
+  
+  dokku_log_info1 "Processing ${#NEW_DOMAINS[@]} new domain(s) for app '$APP':"
+  for domain in "${NEW_DOMAINS[@]}"; do
+    dokku_log_info1 "  • $domain"
+  done
+  echo
+  
+  # Filter new domains to only include those with hosted zones
   local VALID_DOMAINS=()
   local SKIPPED_DOMAINS=()
   
@@ -169,9 +237,9 @@ dns_add_app_domains() {
       
       # Check if AWS is properly configured before filtering
       if aws sts get-caller-identity >/dev/null 2>&1; then
-        dokku_log_info1 "Checking hosted zones for domains..."
+        dokku_log_info1 "Checking hosted zones for new domains..."
         
-        for DOMAIN in "${DOMAINS[@]}"; do
+        for DOMAIN in "${NEW_DOMAINS[@]}"; do
           [[ -z "$DOMAIN" ]] && continue
           
           # Check if domain has a hosted zone
@@ -187,18 +255,18 @@ dns_add_app_domains() {
         done
       else
         dokku_log_warn "AWS CLI not configured or credentials invalid"
-        dokku_log_info1 "Cannot check hosted zones - adding all domains"
+        dokku_log_info1 "Cannot check hosted zones - adding all new domains"
         dokku_log_info1 "Run 'dokku $PLUGIN_COMMAND_PREFIX:verify' to configure AWS credentials"
-        VALID_DOMAINS=("${DOMAINS[@]}")
+        VALID_DOMAINS=("${NEW_DOMAINS[@]}")
       fi
     else
-      dokku_log_warn "AWS provider script not found, adding all domains"
-      VALID_DOMAINS=("${DOMAINS[@]}")
+      dokku_log_warn "AWS provider script not found, adding all new domains"
+      VALID_DOMAINS=("${NEW_DOMAINS[@]}")
     fi
   else
-    # For other providers or no provider configured, add all domains
+    # For other providers or no provider configured, add all new domains
     # Other providers can implement their own hosted zone checking logic
-    VALID_DOMAINS=("${DOMAINS[@]}")
+    VALID_DOMAINS=("${NEW_DOMAINS[@]}")
   fi
   
   # Report skipped domains
@@ -224,13 +292,25 @@ dns_add_app_domains() {
   # Track this app as being added to DNS
   local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
   mkdir -p "$PLUGIN_DATA_ROOT"
+  mkdir -p "$PLUGIN_DATA_ROOT/$APP"
   
   # Add app to LINKS file if not already present
   if [[ ! -f "$LINKS_FILE" ]] || ! grep -q "^$APP$" "$LINKS_FILE" 2>/dev/null; then
     echo "$APP" >> "$LINKS_FILE"
     dokku_log_info1 "App '$APP' added to DNS"
   else
-    dokku_log_info1 "App '$APP' already added to DNS, updating domains"
+    dokku_log_info1 "App '$APP' already in DNS, adding new domains"
+  fi
+  
+  # Add valid domains to the app's domains file
+  for DOMAIN in "${VALID_DOMAINS[@]}"; do
+    echo "$DOMAIN" >> "$APP_DOMAINS_FILE"
+  done
+  
+  # Remove duplicates from the domains file
+  if [[ -f "$APP_DOMAINS_FILE" ]]; then
+    sort -u "$APP_DOMAINS_FILE" > "${APP_DOMAINS_FILE}.tmp"
+    mv "${APP_DOMAINS_FILE}.tmp" "$APP_DOMAINS_FILE"
   fi
   
   # Display the domains table with status information (only for valid domains)
@@ -257,6 +337,17 @@ dns_remove_app() {
     # Create a temporary file without this app
     grep -v "^$APP$" "$LINKS_FILE" > "${LINKS_FILE}.tmp" || true
     mv "${LINKS_FILE}.tmp" "$LINKS_FILE"
+    
+    # Remove the app's domains file
+    local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
+    if [[ -f "$APP_DOMAINS_FILE" ]]; then
+      rm -f "$APP_DOMAINS_FILE"
+    fi
+    
+    # Remove the app directory if it's empty
+    if [[ -d "$PLUGIN_DATA_ROOT/$APP" ]]; then
+      rmdir "$PLUGIN_DATA_ROOT/$APP" 2>/dev/null || true
+    fi
     
     dokku_log_info1 "App '$APP' removed from DNS"
     dokku_log_info1 "Note: Existing DNS records were not deleted"
