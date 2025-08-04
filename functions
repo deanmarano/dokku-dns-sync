@@ -236,7 +236,7 @@ dns_add_app_domains() {
   # Display the domains table with status information (only for valid domains)
   dns_display_domains_table "$APP" "${VALID_DOMAINS[@]}"
   
-  dokku_log_info1 "Domains with hosted zones have been added to DNS"
+  dokku_log_info1 "${#VALID_DOMAINS[@]} domain(s) with hosted zones have been added to DNS"
   dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
 }
 

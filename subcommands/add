@@ -32,9 +32,15 @@ service-add-cmd() {
     if [[ ${#DOMAINS[@]} -eq 0 ]]; then
       dokku_log_fail "No domains found for app '$APP'. Add domains first with: dokku domains:add $APP <domain>"
     fi
-    dokku_log_info1 "Adding all domains for app '$APP': ${DOMAINS[*]}"
+    dokku_log_info1 "Adding all domains for app '$APP':"
+    for domain in "${DOMAINS[@]}"; do
+      dokku_log_info1 "  • $domain"
+    done
   else
-    dokku_log_info1 "Adding specified domains for app '$APP': ${DOMAINS[*]}"
+    dokku_log_info1 "Adding specified domains for app '$APP':"
+    for domain in "${DOMAINS[@]}"; do
+      dokku_log_info1 "  • $domain"
+    done
   fi
   
   dns_add_app_domains "$APP" "${DOMAINS[@]}"
