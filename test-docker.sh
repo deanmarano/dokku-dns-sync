@@ -61,9 +61,10 @@ done
 if [[ "$DIRECT_MODE" == "true" ]]; then
     echo "🧪 Running tests directly against existing Docker containers..."
     
-    # Check if Docker containers are running
-    if ! docker exec dokku-local dokku version >/dev/null 2>&1; then
-        echo "❌ Dokku Docker container not running."
+    # Check if Dokku container is accessible
+    DOKKU_HOST="${DOKKU_HOST:-dokku-local}"
+    if ! nc -z "$DOKKU_HOST" 22 2>/dev/null; then
+        echo "❌ Dokku container not accessible at $DOKKU_HOST:22"
         echo "   Start containers first: docker-compose -f $COMPOSE_FILE up -d"
         exit 1
     fi
@@ -98,8 +99,8 @@ if [[ "$DIRECT_MODE" == "true" ]]; then
     
     # Test Docker connection
     log "INFO" "Testing connection to Dokku container..."
-    if ! nc -z dokku-local 22 2>/dev/null; then
-        log "ERROR" "Cannot connect to Dokku container"
+    if ! nc -z "$DOKKU_HOST" 22 2>/dev/null; then
+        log "ERROR" "Cannot connect to Dokku container at $DOKKU_HOST:22"
         exit 1
     fi
     log "SUCCESS" "Connection to Dokku container established"
