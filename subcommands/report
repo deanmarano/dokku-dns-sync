@@ -119,8 +119,8 @@ dns_global_report() {
   
   echo
   dokku_log_info2 "All Apps Domain Analysis:"
-  dokku_log_info2 "$(printf "%-15s %-25s %-8s %-15s %-12s %s" "App" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
-  dokku_log_info2 "$(printf "%-15s %-25s %-8s %-15s %-12s %s" "---" "------" "---" "------" "--------" "-----------")"
+  dokku_log_info2 "$(printf "%-15s %-30s %-8s %-15s %-12s %s" "App" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
+  dokku_log_info2 "$(printf "%-15s %-30s %-8s %-15s %-12s %s" "---" "------" "---" "------" "--------" "-----------")"
   
   # First pass: collect all domains and count them
   local ALL_DOMAINS=""
@@ -147,19 +147,22 @@ dns_global_report() {
   ALL_DOMAINS=$(echo -e "$ALL_DOMAINS" | grep -v "^$")
   TOTAL_DOMAINS=$(echo "$ALL_DOMAINS" | wc -l | xargs)
   
-  # Analyze each app and display
+  # Analyze each app and display only domains that were actually added to DNS
   while IFS= read -r APP; do
     [[ -z "$APP" ]] && continue
     
-    # Get app domains
-    local APP_DOMAINS
-    APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
+    # Get domains that were actually added to DNS (from per-app DOMAINS file)
+    local APP_DNS_DOMAINS=""
+    local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
+    if [[ -f "$APP_DOMAINS_FILE" ]]; then
+      APP_DNS_DOMAINS=$(cat "$APP_DOMAINS_FILE" 2>/dev/null | tr '\n' ' ')
+    fi
     
-    if [[ -z "$APP_DOMAINS" ]]; then
-      printf "%-15s %-25s %-8s %-15s %-12s %s\n" "$APP" "(no domains)" "➖" "$SYNC_STATUS" "$PROVIDER" "-"
+    if [[ -z "$APP_DNS_DOMAINS" ]]; then
+      printf "%-15s %-30s %-8s %-15s %-12s %s\n" "$APP" "(no domains added)" "➖" "Not added" "$PROVIDER" "-"
     else
       local FIRST_DOMAIN=true
-      for DOMAIN in $APP_DOMAINS; do
+      for DOMAIN in $APP_DNS_DOMAINS; do
         [[ -z "$DOMAIN" ]] && continue
         
         # Get current DNS resolution
@@ -175,6 +178,9 @@ dns_global_report() {
             DNS_EMOJI="⚠️"
           fi
         fi
+        
+        # These domains are from the DOMAINS file, so they were added
+        local APP_DNS_STATUS="Added"
         
         # Try to get hosted zone if provider is AWS and ready
         local HOSTED_ZONE="-"
@@ -201,7 +207,7 @@ dns_global_report() {
         FIRST_DOMAIN=false
         
         # Format and display the row
-        printf "%-15s %-25s %-8s %-15s %-12s %s\n" "$APP_DISPLAY" "$DOMAIN" "$DNS_EMOJI" "$SYNC_STATUS" "$PROVIDER" "$HOSTED_ZONE"
+        printf "%-15s %-30s %-8s %-15s %-12s %s\n" "$APP_DISPLAY" "$DOMAIN" "$DNS_EMOJI" "$APP_DNS_STATUS" "$PROVIDER" "$HOSTED_ZONE"
       done
     fi
   done <<< "$APPS_LIST"
@@ -324,8 +330,8 @@ dns_report() {
   
   echo
   dokku_log_info2 "Domain Analysis:"
-  dokku_log_info2 "$(printf "%-30s %-8s %-20s %-12s %s" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
-  dokku_log_info2 "$(printf "%-30s %-8s %-20s %-12s %s" "------" "---" "------" "--------" "-----------")"
+  dokku_log_info2 "$(printf "%-35s %-8s %-20s %-12s %s" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
+  dokku_log_info2 "$(printf "%-35s %-8s %-20s %-12s %s" "------" "---" "------" "--------" "-----------")"
   
   # Check global provider credentials
   local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
@@ -423,7 +429,7 @@ dns_report() {
     fi
     
     # Format and display the row
-    printf "%-30s %-8s %-20s %-12s %s\n" "$DOMAIN" "$DNS_EMOJI" "$DOMAIN_STATUS" "$PROVIDER" "$HOSTED_ZONE"
+    printf "%-35s %-8s %-20s %-12s %s\n" "$DOMAIN" "$DNS_EMOJI" "$DOMAIN_STATUS" "$PROVIDER" "$HOSTED_ZONE"
   done
   
   echo
