@@ -147,7 +147,65 @@ dns_add_app_domains() {
     return 0
   fi
   
-  dokku_log_info2 "Adding domains for app '$APP' to DNS"
+  # Check if DNS provider is configured
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  local PROVIDER="None"
+  
+  if [[ -f "$PROVIDER_FILE" ]]; then
+    PROVIDER="$(cat "$PROVIDER_FILE")"
+  fi
+  
+  # Filter domains to only include those with hosted zones
+  local VALID_DOMAINS=()
+  local SKIPPED_DOMAINS=()
+  
+  if [[ "$PROVIDER" == "aws" ]]; then
+    # Load AWS provider functions to check hosted zones
+    local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
+    if [[ -f "$PROVIDER_SCRIPT" ]]; then
+      source "$PROVIDER_SCRIPT"
+      dns_provider_aws_setup_env
+      
+      for DOMAIN in "${DOMAINS[@]}"; do
+        [[ -z "$DOMAIN" ]] && continue
+        
+        # Check if domain has a hosted zone
+        if dns_provider_aws_get_hosted_zone_id "$DOMAIN" >/dev/null 2>&1; then
+          VALID_DOMAINS+=("$DOMAIN")
+        else
+          SKIPPED_DOMAINS+=("$DOMAIN")
+        fi
+      done
+    else
+      dokku_log_warn "AWS provider script not found, adding all domains"
+      VALID_DOMAINS=("${DOMAINS[@]}")
+    fi
+  else
+    # For other providers or no provider configured, add all domains
+    # Other providers can implement their own hosted zone checking logic
+    VALID_DOMAINS=("${DOMAINS[@]}")
+  fi
+  
+  # Report skipped domains
+  if [[ ${#SKIPPED_DOMAINS[@]} -gt 0 ]]; then
+    dokku_log_warn "Skipping domains without hosted zones:"
+    for DOMAIN in "${SKIPPED_DOMAINS[@]}"; do
+      dokku_log_info1 "  ❌ $DOMAIN (no hosted zone found)"
+    done
+    echo
+  fi
+  
+  # Check if we have any valid domains left
+  if [[ ${#VALID_DOMAINS[@]} -eq 0 ]]; then
+    dokku_log_warn "No domains with hosted zones found for app: $APP"
+    if [[ ${#SKIPPED_DOMAINS[@]} -gt 0 ]]; then
+      dokku_log_info1 "Create hosted zones for these domains in your DNS provider first"
+    fi
+    return 0
+  fi
+  
+  dokku_log_info2 "Adding domains for app '$APP' to DNS (${#VALID_DOMAINS[@]} domains)"
   
   # Track this app as being added to DNS
   local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
@@ -161,10 +219,10 @@ dns_add_app_domains() {
     dokku_log_info1 "App '$APP' already added to DNS, updating domains"
   fi
   
-  # Display the domains table with status information
-  dns_display_domains_table "$APP" "${DOMAINS[@]}"
+  # Display the domains table with status information (only for valid domains)
+  dns_display_domains_table "$APP" "${VALID_DOMAINS[@]}"
   
-  dokku_log_info1 "Domains have been added to DNS"
+  dokku_log_info1 "Domains with hosted zones have been added to DNS"
   dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
 }
 

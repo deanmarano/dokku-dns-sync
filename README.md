@@ -19,9 +19,10 @@ sudo dokku plugin:install https://github.com/dokku/dokku-dns.git --name dns
 ```
 dns:add <app>            # add app domains to dns provider for management
 dns:configure <provider> # configure or change the global dns provider
-dns:report <app>         # display DNS status and domain information for an app
+dns:remove <app>         # remove app from dns management
+dns:report <app>         # display DNS status and domain information for app(s)
 dns:sync <app>           # synchronize DNS records for app
-dns:verify               # verify DNS provider setup and connectivity
+dns:verify               # verify DNS provider setup and connectivity, discover existing DNS records
 ```
 
 ## Usage
@@ -44,7 +45,7 @@ dokku dns:add nextcloud
 dokku dns:add nextcloud example.com api.example.com
 ```
 
-By default, adds all domains configured for the app optionally specify specific domains to add to `DNS` management this registers domains with the `DNS` provider but doesn`t sync records yet use `dokku dns:sync` to update `DNS` records:
+By default, adds all domains configured for the app optionally specify specific domains to add to `DNS` management this registers domains with the `DNS` provider but doesn`t update records yet use `dokku dns:sync` to update `DNS` records:
 
 ### configure or change the global dns provider
 
@@ -53,28 +54,28 @@ By default, adds all domains configured for the app optionally specify specific 
 dokku dns:configure <provider>
 ```
 
-Configure the global `DNS` sync provider:
+Configure the global `DNS` provider:
 
 ```shell
 dokku dns:configure [aws|cloudflare]
 ```
 
-This sets up or changes the `DNS` provider for all `DNS` synchronization. If no provider is specified, defaults to `$DNS_SYNC_DEFAULT_PROVIDER` if provider is already configured, this will change to the new provider after configuration, use other commands to: - configure credentials: dokku dns:verify - sync an app: dokku dns:sync myapp:
+This sets up or changes the `DNS` provider for all `DNS` management. If no provider is specified, defaults to `$DNS_DEFAULT_PROVIDER` if provider is already configured, this will change to the new provider after configuration, use other commands to: - configure credentials: dokku dns:verify - sync an app: dokku dns:sync myapp:
 
-### verify DNS provider setup and connectivity
+### verify DNS provider setup and connectivity, discover existing DNS records
 
 ```shell
 # usage
 dokku dns:verify
 ```
 
-Verify `DNS` provider setup and connectivity:
+Verify `DNS` provider setup and connectivity, discover existing `DNS` records:
 
 ```shell
 dokku dns:verify
 ```
 
-For `AWS`:` checks if `AWS` `CLI` is configured and tests Route53 access for Cloudflare: prompts for `CLOUDFLARE_API_TOKEN` if not set, then validates access:
+For `AWS`:` checks if `AWS` `CLI` is configured, tests Route53 access, shows existing `DNS` records for Dokku domains for Cloudflare: prompts for `CLOUDFLARE_API_TOKEN` if not set, then validates access:
 
 ## AWS Setup
 
@@ -183,20 +184,20 @@ Run the verify command and enter your token when prompted:
 dokku dns:verify
 ```
 
-### display DNS status and domain information for an app
+### display DNS status and domain information for app(s)
 
 ```shell
 # usage
 dokku dns:report <app>
 ```
 
-Display `DNS` sync status and domain information for an app:
+Display `DNS` status and domain information for app(s):
 
 ```shell
-dokku dns:report myapp
+dokku dns:report [app]
 ```
 
-Shows server `IP,` all domains for the app, `DNS` status with emojis, and hosted zones `DNS` status: ✅ correct, ⚠️ wrong `IP,` ❌ no record:
+Shows server `IP,` domains, `DNS` status with emojis, and hosted zones without app: shows all apps and their domains with app: shows detailed report for specific app `DNS` status: ✅ correct, ⚠️ wrong `IP,` ❌ no record:
 
 ### synchronize DNS records for app
 

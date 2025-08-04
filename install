@@ -90,12 +90,15 @@ plugin-install() {
   fi
   
   echo ""
-  echo "Available commands:"
-  echo "  dokku $PLUGIN_COMMAND_PREFIX:help                      # Show help"
-  echo "  dokku $PLUGIN_COMMAND_PREFIX:verify                    # Test provider setup"
-  echo "  dokku $PLUGIN_COMMAND_PREFIX:add <app>                 # Add app domains to DNS"
-  echo "  dokku $PLUGIN_COMMAND_PREFIX:sync <app>                # Update DNS records"
-  echo "  dokku $PLUGIN_COMMAND_PREFIX:report [<app>]            # Show DNS status"
+  echo "Next steps:"
+  echo "  1. Configure DNS provider:     dokku $PLUGIN_COMMAND_PREFIX:configure [aws|cloudflare]"
+  echo "  2. Set up credentials:         dokku $PLUGIN_COMMAND_PREFIX:verify"
+  echo "  3. Add app domains:            dokku $PLUGIN_COMMAND_PREFIX:add <app>"
+  echo "  4. Sync DNS records:           dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+  echo ""
+  
+  # Show the help output directly
+  dokku "$PLUGIN_COMMAND_PREFIX:help" 2>/dev/null || echo "Run 'dokku $PLUGIN_COMMAND_PREFIX:help' to see all available commands"
 }
 
 plugin-install "$@"

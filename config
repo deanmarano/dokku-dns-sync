@@ -19,5 +19,8 @@ export PLUGIN_BUSYBOX_IMAGE=${PLUGIN_BUSYBOX_IMAGE:=busybox:1.37.0-uclibc}
 export DNS_CONFIG_OPTIONS=${DNS_CONFIG_OPTIONS:=""}
 
 # Plugin configuration for documentation generation
+export PLUGIN_VARIABLE="DNS"
+export PLUGIN_DEFAULT_ALIAS="DNS"
 export PLUGIN_SCHEME="dns"
 export PLUGIN_DATASTORE_PORTS=("53")
+export PLUGIN_UNIMPLEMENTED_SUBCOMMANDS=("connect" "enter" "expose" "unexpose" "promote" "start" "stop" "pause" "restart" "upgrade" "app-links" "clone" "exists" "linked" "links" "import" "export" "backup-auth" "backup-deauth" "backup" "backup-set-encryption" "backup-set-public-key-encryption" "backup-unset-encryption" "backup-unset-public-key-encryption" "backup-schedule" "backup-schedule-cat" "backup-unschedule")
