@@ -228,6 +228,8 @@ dns_add_app_domains() {
   local VALID_DOMAINS=()
   local SKIPPED_DOMAINS=()
   
+  dokku_log_info1 "Filtering domains - Provider: $PROVIDER, New domains: ${#NEW_DOMAINS[@]}"
+  
   if [[ "$PROVIDER" == "aws" ]]; then
     # Load AWS provider functions to check hosted zones
     local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
@@ -236,8 +238,9 @@ dns_add_app_domains() {
       dns_provider_aws_setup_env
       
       # Check if AWS is properly configured before filtering
+      dokku_log_info1 "Testing AWS credentials..."
       if aws sts get-caller-identity >/dev/null 2>&1; then
-        dokku_log_info1 "Checking hosted zones for new domains..."
+        dokku_log_info1 "AWS credentials OK - checking hosted zones for new domains..."
         
         for DOMAIN in "${NEW_DOMAINS[@]}"; do
           [[ -z "$DOMAIN" ]] && continue
