@@ -8,7 +8,7 @@ on:
       - "*"
   push:
     branches:
-      - master
+      - main
 
 concurrency:
   group: build-${{ github.event.pull_request.number || github.ref }}
@@ -35,8 +35,8 @@ jobs:
       - run: sudo sysctl -w vm.max_map_count=262144
 
       - run: |
-          git fetch -q origin master
-          changed=$(git --no-pager diff --name-only $GITHUB_SHA..origin/master)
+          git fetch -q origin main
+          changed=$(git --no-pager diff --name-only $GITHUB_SHA..origin/main)
           if [ $changed = "Dockerfile" ]; then
             echo "Please run 'make generate' to update the image version in the README.md"
           else
@@ -77,8 +77,8 @@ jobs:
       - run: sudo sysctl -w vm.max_map_count=262144
 
       - run: |
-          git fetch -q origin master
-          changed=$(git --no-pager diff --name-only $GITHUB_SHA..origin/master)
+          git fetch -q origin main
+          changed=$(git --no-pager diff --name-only $GITHUB_SHA..origin/main)
           if [ $changed = "Dockerfile" ]; then
             echo "Please run 'make generate' to update the image version in the README.md"
           else
