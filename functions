@@ -245,6 +245,7 @@ dns_add_app_domains() {
         for DOMAIN in "${NEW_DOMAINS[@]}"; do
           [[ -z "$DOMAIN" ]] && continue
           
+          dokku_log_info1 "Checking domain: $DOMAIN"
           # Check if domain has a hosted zone
           local ZONE_ID
           ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null)
@@ -255,7 +256,9 @@ dns_add_app_domains() {
             SKIPPED_DOMAINS+=("$DOMAIN")
             dokku_log_info1 "✗ $DOMAIN has no hosted zone"
           fi
+          dokku_log_info1 "Finished checking domain: $DOMAIN"
         done
+        dokku_log_info1 "Completed hosted zone checks for all domains"
       else
         dokku_log_warn "AWS CLI not configured or credentials invalid"
         dokku_log_info1 "Cannot check hosted zones - adding all new domains"
