@@ -208,9 +208,12 @@ dokku dns:remove 2>&1 || echo "Usage error handled correctly"
 log_remote "SUCCESS" "All DNS plugin tests completed!"
 TEST_SCRIPT_EOF
     
-    # Copy script to container and execute
-    if docker cp /tmp/dns-test-script.sh dokku-local:/tmp/dns-test.sh && \
-       docker exec dokku-local bash /tmp/dns-test.sh; then
+    # Copy script to container via SSH and execute
+    DOKKU_USER="${DOKKU_USER:-dokku}"
+    DOKKU_SSH_PORT="${DOKKU_SSH_PORT:-22}"
+    
+    if scp -P "$DOKKU_SSH_PORT" -o StrictHostKeyChecking=no /tmp/dns-test-script.sh "$DOKKU_USER@$DOKKU_HOST:/tmp/dns-test.sh" && \
+       ssh -p "$DOKKU_SSH_PORT" -o StrictHostKeyChecking=no "$DOKKU_USER@$DOKKU_HOST" "sudo bash /tmp/dns-test.sh"; then
         log "SUCCESS" "All tests completed successfully!"
         log "INFO" "DNS plugin functionality verified with comprehensive test suite"
     else
