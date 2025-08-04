@@ -49,5 +49,5 @@ ssh-keyscan -p "$DOKKU_SSH_PORT" "$DOKKU_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
 log "INFO" "Starting Docker-based Dokku DNS plugin tests..."
 
-# Run the Docker-specific test script
-exec /test-docker.sh "$DOKKU_HOST" "$DOKKU_USER" "${TEST_APP:-nextcloud}"
+# Run the Docker-specific test script in direct mode (containers already running)
+exec /test-docker.sh --direct
