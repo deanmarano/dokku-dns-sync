@@ -153,20 +153,22 @@ CRED_BODY_EOF
         echo "cat > ~/.aws/credentials << 'AWS_CRED_EOF'" >> "$script_file"
         echo "[default]" >> "$script_file"
         echo "DEBUG: About to access AWS_ACCESS_KEY_ID" >&2
-        echo "aws_access_key_id = ${AWS_ACCESS_KEY_ID}" >> "$script_file"
+        {
+            echo "aws_access_key_id = ${AWS_ACCESS_KEY_ID}"
+            echo "aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}"
+            echo "AWS_CRED_EOF"
+            echo ""
+            echo "# Also configure for root (for sudo operations like plugin install)"
+            echo "sudo mkdir -p /root/.aws"
+            echo "sudo tee /root/.aws/credentials > /dev/null << 'AWS_CRED_EOF'"
+            echo "[default]"
+            echo "aws_access_key_id = ${AWS_ACCESS_KEY_ID}"
+            echo "aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}"
+        } >> "$script_file"
         echo "DEBUG: About to access AWS_SECRET_ACCESS_KEY" >&2
-        echo "aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}" >> "$script_file"
-        echo "AWS_CRED_EOF" >> "$script_file"
         echo "DEBUG: Finished first credentials block" >&2
-        echo "" >> "$script_file"
-        echo "# Also configure for root (for sudo operations like plugin install)" >> "$script_file"
-        echo "sudo mkdir -p /root/.aws" >> "$script_file"
-        echo "sudo tee /root/.aws/credentials > /dev/null << 'AWS_CRED_EOF'" >> "$script_file"
-        echo "[default]" >> "$script_file"
         echo "DEBUG: About to write second AWS_ACCESS_KEY_ID" >&2
-        echo "aws_access_key_id = ${AWS_ACCESS_KEY_ID}" >> "$script_file"
         echo "DEBUG: About to write second AWS_SECRET_ACCESS_KEY" >&2
-        echo "aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}" >> "$script_file"
         echo "AWS_CRED_EOF" >> "$script_file"
         echo "DEBUG: Finished second credentials block" >&2
 
@@ -475,10 +477,10 @@ main() {
     # Load environment variables from .env file if it exists
     if [[ -f ".env" ]]; then
         echo "Loading AWS credentials from .env file"
-        export $(grep -v '^#' .env | xargs)
+        set -a; source .env; set +a
     elif [[ -f "../.env" ]]; then
         echo "Loading AWS credentials from ../.env file"  
-        export $(grep -v '^#' ../.env | xargs)
+        set -a; source ../.env; set +a
     fi
 
     log "INFO" "Starting DNS plugin test on server: $SERVER_HOST"

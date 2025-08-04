@@ -21,7 +21,7 @@ for i in $(seq 1 $((MAX_WAIT / WAIT_INTERVAL))); do
         break
     fi
     
-    if [ $i -eq $((MAX_WAIT / WAIT_INTERVAL)) ]; then
+    if [ "$i" -eq $((MAX_WAIT / WAIT_INTERVAL)) ]; then
         log "ERROR" "Timeout waiting for Dokku container to be ready"
         exit 1
     fi
