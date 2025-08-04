@@ -31,8 +31,8 @@ show_help() {
 
 # Parse arguments
 DIRECT_MODE=false
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case $1 in
         --build)
             BUILD_FLAG="--build"
             shift
@@ -50,7 +50,7 @@ for arg in "$@"; do
             exit 0
             ;;
         *)
-            echo "Unknown option: $arg"
+            echo "Unknown option: $1"
             echo "Use --help for usage information"
             exit 1
             ;;
