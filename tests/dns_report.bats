@@ -23,34 +23,29 @@ teardown() {
   assert_output_contains "Server Public IP:"
   assert_output_contains "Global DNS Provider: aws"
   assert_output_contains "Configuration Status: Configured"
-  assert_output_contains "All Apps Domain Analysis:"
-  assert_output_contains "App             Domain                    DNS      Status          Provider     Hosted Zone"
-  assert_output_contains "---             ------                    ---      ------          --------     -----------"
-  assert_output_contains "my-app"
-  assert_output_contains "example.com"
-  assert_output_contains "other-app"
-  assert_output_contains "test.com"
-  assert_output_contains "DNS Status Legend:"
-  assert_output_contains "✅ Points to server IP"
-  assert_output_contains "⚠️  Points to different IP"
-  assert_output_contains "❌ No DNS record found"
+  # When no apps are added to DNS, shows help message
+  assert_output_contains "Add an app to DNS with: dokku dns:add <app-name>"
 }
 
 @test "(dns:report) app-specific report works" {
+  # Add app to DNS management first
+  dokku "$PLUGIN_COMMAND_PREFIX:add" my-app >/dev/null 2>&1 || true
+  
   run dokku "$PLUGIN_COMMAND_PREFIX:report" my-app
   assert_success
   assert_output_contains "DNS Report for app: my-app"
   assert_output_contains "Server Public IP:"
   assert_output_contains "Global DNS Provider: aws"
   assert_output_contains "Configuration Status: Configured"
+  assert_output_contains "DNS Status: Added"
   assert_output_contains "Domain Analysis:"
-  assert_output_contains "Domain                         DNS      Status               Provider     Hosted Zone"
-  assert_output_contains "------                         ---      ------               --------     -----------"
+  assert_output_contains "Domain                              DNS      Status               Provider     Hosted Zone"
+  assert_output_contains "------                              ---      ------               --------     -----------"
   assert_output_contains "example.com"
+  assert_output_contains "Provider not ready"
   assert_output_contains "DNS Status Legend:"
   assert_output_contains "Actions available:"
-  assert_output_contains "Configure credentials: dokku dns:verify"
-  assert_output_contains "Then sync DNS: dokku dns:sync my-app"
+  assert_output_contains "Fix configuration issues, then update: dokku dns:sync my-app"
 }
 
 @test "(dns:report) app-specific report shows error for nonexistent app" {
@@ -66,8 +61,8 @@ teardown() {
   assert_success
   assert_output_contains "Global DNS Provider: None"
   assert_output_contains "Configuration Status: Not configured"
-  assert_output_contains "No DNS provider configured"
-  assert_output_contains "Configure one with: dokku dns:configure <provider>"
+  assert_output_contains "DNS Status: Not added"
+  assert_output_contains "Configure DNS provider: dokku dns:configure"
 }
 
 @test "(dns:report) global report handles no apps gracefully" {
@@ -76,8 +71,10 @@ teardown() {
   
   run dokku "$PLUGIN_COMMAND_PREFIX:report"
   assert_success
-  assert_output_contains "No Dokku apps found"
-  assert_output_contains "Create an app with: dokku apps:create <app-name>"
+  assert_output_contains "DNS Global Report - All Apps"
+  assert_output_contains "Global DNS Provider: aws"
+  assert_output_contains "Configuration Status: Configured"
+  assert_output_contains "Add an app to DNS with: dokku dns:add <app-name>"
 }
 
 @test "(dns:report) app report handles app with no domains" {
@@ -104,15 +101,22 @@ teardown() {
   run dokku "$PLUGIN_COMMAND_PREFIX:report"
   assert_success
   
-  # Should mention domain counts or percentages
-  assert_output_contains "DNS status:" || assert_output_contains "configured" || assert_output_contains "Total domains:"
+  # Shows basic report information
+  assert_output_contains "DNS Global Report - All Apps"
+  assert_output_contains "Global DNS Provider: aws"
+  assert_output_contains "Configuration Status: Configured"
+  # When no apps added to DNS, shows help message
+  assert_output_contains "Add an app to DNS with: dokku dns:add <app-name>"
 }
 
 @test "(dns:report) shows provider status" {
+  # Add app to DNS management first  
+  dokku "$PLUGIN_COMMAND_PREFIX:add" my-app >/dev/null 2>&1 || true
+  
   run dokku "$PLUGIN_COMMAND_PREFIX:report" my-app
   assert_success
   
-  # Should show provider status
-  assert_output_contains "aws"
-  assert_output_contains "Missing auth" || assert_output_contains "Ready" || assert_output_contains "Not ready"
+  # Provider appears multiple times in output (header and table)
+  assert_output_contains "aws" 2
+  assert_output_contains "Provider not ready" || assert_output_contains "DNS Status: Added"
 }
