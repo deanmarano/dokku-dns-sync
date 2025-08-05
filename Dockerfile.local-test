@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install basic dependencies
+# Install basic dependencies including Docker CLI
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI
+RUN curl -fsSL https://get.docker.com | sh
 
 # Install BATS (Bash Automated Testing System)
 RUN git clone https://github.com/bats-core/bats-core.git /tmp/bats-core \

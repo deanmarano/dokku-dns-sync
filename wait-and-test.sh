@@ -2,9 +2,7 @@
 set -euo pipefail
 
 # Wait for Dokku container to be ready and run tests
-DOKKU_HOST="${DOKKU_HOST:-dokku}"
-DOKKU_SSH_PORT="${DOKKU_SSH_PORT:-22}"
-DOKKU_USER="${DOKKU_USER:-dokku}"
+DOKKU_CONTAINER="${DOKKU_CONTAINER:-dokku-local}"
 MAX_WAIT=300  # 5 minutes
 WAIT_INTERVAL=5
 
@@ -14,10 +12,10 @@ log() {
 
 log "INFO" "Waiting for Dokku container to be ready..."
 
-# Wait for Dokku container to respond
+# Wait for Dokku container to respond via Docker
 for i in $(seq 1 $((MAX_WAIT / WAIT_INTERVAL))); do
-    if nc -z "$DOKKU_HOST" "$DOKKU_SSH_PORT" 2>/dev/null; then
-        log "INFO" "Dokku container is responding on port $DOKKU_SSH_PORT"
+    if docker exec "$DOKKU_CONTAINER" echo "Container ready" >/dev/null 2>&1; then
+        log "INFO" "Dokku container is responding: $DOKKU_CONTAINER"
         break
     fi
     
@@ -33,19 +31,6 @@ done
 # Give Dokku a few more seconds to fully initialize
 log "INFO" "Waiting additional 10 seconds for Dokku to fully initialize..."
 sleep 10
-
-# Set up SSH key using pre-generated test key (for container-to-container communication)
-log "INFO" "Setting up SSH key for container communication..."
-mkdir -p ~/.ssh
-cp /plugin/tests/test-keys/test_rsa ~/.ssh/id_rsa
-cp /plugin/tests/test-keys/test_rsa.pub ~/.ssh/id_rsa.pub
-chmod 600 ~/.ssh/id_rsa
-chmod 644 ~/.ssh/id_rsa.pub
-chmod 700 ~/.ssh
-
-# Add Dokku host to known hosts
-log "INFO" "Adding Dokku host to known hosts..."
-ssh-keyscan -p "$DOKKU_SSH_PORT" "$DOKKU_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
 log "INFO" "Starting Docker-based Dokku DNS plugin tests..."
 

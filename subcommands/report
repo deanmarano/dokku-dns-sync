@@ -155,7 +155,7 @@ dns_global_report() {
     local APP_DNS_DOMAINS=""
     local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
     if [[ -f "$APP_DOMAINS_FILE" ]]; then
-      APP_DNS_DOMAINS=$(cat "$APP_DOMAINS_FILE" 2>/dev/null | tr '\n' ' ')
+      APP_DNS_DOMAINS=$(tr '\n' ' ' < "$APP_DOMAINS_FILE" 2>/dev/null)
     fi
     
     if [[ -z "$APP_DNS_DOMAINS" ]]; then

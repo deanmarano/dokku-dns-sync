@@ -62,9 +62,9 @@ if [[ "$DIRECT_MODE" == "true" ]]; then
     echo "🧪 Running tests directly against existing Docker containers..."
     
     # Check if Dokku container is accessible
-    DOKKU_HOST="${DOKKU_HOST:-dokku-local}"
-    if ! nc -z "$DOKKU_HOST" 22 2>/dev/null; then
-        echo "❌ Dokku container not accessible at $DOKKU_HOST:22"
+    DOKKU_CONTAINER="${DOKKU_CONTAINER:-dokku-local}"
+    if ! docker exec "$DOKKU_CONTAINER" echo "Container accessible" >/dev/null 2>&1; then
+        echo "❌ Dokku container not accessible: $DOKKU_CONTAINER"
         echo "   Start containers first: docker-compose -f $COMPOSE_FILE up -d"
         exit 1
     fi
@@ -97,10 +97,10 @@ if [[ "$DIRECT_MODE" == "true" ]]; then
         esac
     }
     
-    # Test Docker connection
+    # Test Docker connection  
     log "INFO" "Testing connection to Dokku container..."
-    if ! nc -z "$DOKKU_HOST" 22 2>/dev/null; then
-        log "ERROR" "Cannot connect to Dokku container at $DOKKU_HOST:22"
+    if ! docker exec "$DOKKU_CONTAINER" echo "Container accessible" >/dev/null 2>&1; then
+        log "ERROR" "Cannot connect to Dokku container: $DOKKU_CONTAINER"
         exit 1
     fi
     log "SUCCESS" "Connection to Dokku container established"
@@ -208,12 +208,10 @@ dokku dns:remove 2>&1 || echo "Usage error handled correctly"
 log_remote "SUCCESS" "All DNS plugin tests completed!"
 TEST_SCRIPT_EOF
     
-    # Copy script to container via SSH and execute
-    DOKKU_USER="${DOKKU_USER:-dokku}"
-    DOKKU_SSH_PORT="${DOKKU_SSH_PORT:-22}"
+    # Copy script to container via Docker and execute
+    DOKKU_CONTAINER="${DOKKU_CONTAINER:-dokku-local}"
     
-    if scp -P "$DOKKU_SSH_PORT" -o StrictHostKeyChecking=no /tmp/dns-test-script.sh "$DOKKU_USER@$DOKKU_HOST:/tmp/dns-test.sh" && \
-       ssh -p "$DOKKU_SSH_PORT" -o StrictHostKeyChecking=no "$DOKKU_USER@$DOKKU_HOST" "sudo bash /tmp/dns-test.sh"; then
+    if docker exec -i "$DOKKU_CONTAINER" bash -c "cat > /tmp/dns-test.sh && chmod +x /tmp/dns-test.sh && sudo bash /tmp/dns-test.sh" < /tmp/dns-test-script.sh; then
         log "SUCCESS" "All tests completed successfully!"
         log "INFO" "DNS plugin functionality verified with comprehensive test suite"
     else
