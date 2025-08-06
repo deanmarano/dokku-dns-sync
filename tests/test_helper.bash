@@ -9,16 +9,36 @@ else
   export PATH="$PATH:$DOKKU_LIB_ROOT/plugins/available/dns/subcommands"
 fi
 
-source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+# Try to source config from parent directory first, then current directory (for Docker tests)
+CONFIG_PATH="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+if [[ -f "$CONFIG_PATH" ]]; then
+  source "$CONFIG_PATH"
+elif [[ -f "$(dirname "${BASH_SOURCE[0]}")/config" ]]; then
+  source "$(dirname "${BASH_SOURCE[0]}")/config"
+else
+  echo "Error: Cannot find config file" >&2
+  exit 1
+fi
 
 # Add subcommands and test bin to PATH for testing (prioritize test bin)
-PLUGIN_ROOT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")"
+# Set PLUGIN_ROOT for both normal and Docker test environments
+if [[ -d "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/subcommands" ]]; then
+  PLUGIN_ROOT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")"
+else
+  # Docker test environment - subcommands are in current directory
+  PLUGIN_ROOT="$(dirname "${BASH_SOURCE[0]}")"
+fi
 TEST_BIN_DIR="$(dirname "${BASH_SOURCE[0]}")/bin"
 export PATH="$TEST_BIN_DIR:$PLUGIN_ROOT/subcommands:$PATH"
 
 # Ensure our test dokku takes precedence over system dokku
 if [[ -f "$TEST_BIN_DIR/dokku" ]]; then
   alias dokku="$TEST_BIN_DIR/dokku"
+  # Also create a function override that works in subshells (for BATS)
+  dokku() {
+    "$TEST_BIN_DIR/dokku" "$@"
+  }
+  export -f dokku
 fi
 
 # DNS plugin test helper functions
@@ -32,11 +52,23 @@ dns_cmd() {
 
 setup_dns_provider() {
   local provider="${1:-aws}"
-  dns_cmd configure "$provider" >/dev/null 2>&1 || true
+  # In Docker test environment, use real dokku commands
+  if [[ -d "/var/lib/dokku" ]] && [[ -w "/var/lib/dokku" ]]; then
+    dokku dns:configure "$provider" >/dev/null 2>&1 || true
+  else
+    dns_cmd configure "$provider" >/dev/null 2>&1 || true
+  fi
 }
 
 cleanup_dns_data() {
-  rm -rf "$PLUGIN_DATA_ROOT" >/dev/null 2>&1 || true
+  # In Docker test environment, preserve provider configuration but clean app data
+  if [[ -d "/var/lib/dokku" ]] && [[ -w "/var/lib/dokku" ]]; then
+    # Only clean up app-specific data, preserve global provider config
+    find "$PLUGIN_DATA_ROOT" -name "LINKS" -delete 2>/dev/null || true
+    find "$PLUGIN_DATA_ROOT" -maxdepth 1 -type d -name "*-*" -exec rm -rf {} + 2>/dev/null || true
+  else
+    rm -rf "$PLUGIN_DATA_ROOT" >/dev/null 2>&1 || true
+  fi
 }
 
 create_test_app() {

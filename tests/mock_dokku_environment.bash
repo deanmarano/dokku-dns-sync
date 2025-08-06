@@ -31,7 +31,15 @@ create_mock_dokku() {
   echo "testapp" > "$DOKKU_APPS_FILE"
   echo "nextcloud" >> "$DOKKU_APPS_FILE"
   
-  cat > "$mock_dir/dokku" << EOF
+  # Use the existing test bin/dokku if available, otherwise create a basic mock
+  local test_bin_dir="$(dirname "${BASH_SOURCE[0]}")/bin"
+  if [[ -f "$test_bin_dir/dokku" ]]; then
+    # Copy our DNS-aware test mock instead of creating a basic one
+    cp "$test_bin_dir/dokku" "$mock_dir/dokku"
+    chmod +x "$mock_dir/dokku"
+  else
+    # Fallback basic mock for environments without our test mock
+    cat > "$mock_dir/dokku" << EOF
 #!/usr/bin/env bash
 # Mock dokku command for testing
 
@@ -68,8 +76,10 @@ case "\$1" in
 esac
 EOF
     chmod +x "$mock_dir/dokku"
-    # Put mock dokku at the very beginning of PATH
-    export PATH="$mock_dir:$PATH"
+  fi
+  
+  # Put mock dokku at the very beginning of PATH
+  export PATH="$mock_dir:$PATH"
 }
 
 # Initialize mock environment

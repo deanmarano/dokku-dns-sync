@@ -2,15 +2,21 @@
 load test_helper
 
 setup() {
-  cleanup_dns_data
-  setup_dns_provider aws
-  create_test_app my-app
-  add_test_domains my-app example.com api.example.com
+  # Skip setup in Docker environment - apps and provider already configured
+  if [[ ! -d "/var/lib/dokku" ]] || [[ ! -w "/var/lib/dokku" ]]; then
+    cleanup_dns_data
+    setup_dns_provider aws
+    create_test_app my-app
+    add_test_domains my-app example.com api.example.com
+  fi
 }
 
 teardown() {
-  cleanup_test_app my-app
-  cleanup_dns_data
+  # Skip teardown in Docker environment to preserve setup
+  if [[ ! -d "/var/lib/dokku" ]] || [[ ! -w "/var/lib/dokku" ]]; then
+    cleanup_test_app my-app
+    cleanup_dns_data
+  fi
 }
 
 @test "(dns:add) error when there are no arguments" {

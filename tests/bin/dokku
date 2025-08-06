@@ -2,7 +2,15 @@
 # Test wrapper for dokku DNS commands
 
 # Extract the DNS command  
-PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Handle both normal test environment and Docker test environment
+BIN_DIR="$(dirname "${BASH_SOURCE[0]}")"
+if [[ -d "$BIN_DIR/../subcommands" ]]; then
+    # Docker test environment - subcommands in same directory level
+    PLUGIN_ROOT="$(cd "$BIN_DIR/.." && pwd)"
+else
+    # Normal test environment - subcommands in parent's parent directory
+    PLUGIN_ROOT="$(cd "$BIN_DIR/../.." && pwd)"
+fi
 if [[ "$1" == "dns:verify" ]]; then
     exec "$PLUGIN_ROOT/subcommands/verify" "${@:2}"
 elif [[ "$1" == "dns:configure" ]]; then
