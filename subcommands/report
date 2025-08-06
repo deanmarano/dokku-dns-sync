@@ -2,7 +2,32 @@
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f verify_app_name >/dev/null 2>&1; then
+  verify_app_name() {
+    local app="$1"
+    [[ -n "$app" ]] || { echo " !     Please specify an app name" >&2; exit 1; }
+  }
+fi
+
+if ! declare -f dokku_log_info1 >/dev/null 2>&1; then
+  dokku_log_info1() { echo "-----> $*"; }
+fi
+
+if ! declare -f dokku_log_info2 >/dev/null 2>&1; then
+  dokku_log_info2() { echo "=====> $*"; }
+fi
+
+if ! declare -f dokku_log_warn >/dev/null 2>&1; then
+  dokku_log_warn() { echo " !     $*"; }
+fi
+
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-report-cmd() {
@@ -33,22 +58,33 @@ dns_global_report() {
   dokku_log_info2 "DNS Global Report - All Apps"
   dokku_log_info2 "$(printf "%-50s" "==================================")"
   
-  # Get server's public IP first
-  local SERVER_IP
-  local GLOBAL_DOMAINS
-  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
+  # Get server's public IP first (handle failure gracefully)
+  local SERVER_IP="127.0.0.1"  # Default fallback
+  local GLOBAL_DOMAINS=""
   
-  if [[ -n "$GLOBAL_DOMAINS" ]]; then
+  if command -v dokku >/dev/null 2>&1; then
+    GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
+  fi
+  
+  if [[ -n "$GLOBAL_DOMAINS" ]] && command -v dig >/dev/null 2>&1; then
     # Use the first global domain to resolve server IP
     local FIRST_GLOBAL_DOMAIN
     FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
-    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1 2>/dev/null || echo "")
+    local RESOLVED_IP
+    RESOLVED_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" 2>/dev/null | tail -n1 || echo "")
+    if [[ -n "$RESOLVED_IP" ]]; then
+      SERVER_IP="$RESOLVED_IP"
+    fi
   fi
   
   # If no global domains or couldn't resolve, try to get server IP another way
-  if [[ -z "$SERVER_IP" ]]; then
+  if [[ "$SERVER_IP" == "127.0.0.1" ]] && command -v curl >/dev/null 2>&1; then
     # Try to get the server's public IP
-    SERVER_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || curl -s --max-time 3 ipecho.net/plain 2>/dev/null || curl -s --max-time 3 icanhazip.com 2>/dev/null || echo "Unknown")
+    local PUBLIC_IP
+    PUBLIC_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || curl -s --max-time 3 ipecho.net/plain 2>/dev/null || curl -s --max-time 3 icanhazip.com 2>/dev/null || echo "")
+    if [[ -n "$PUBLIC_IP" ]]; then
+      SERVER_IP="$PUBLIC_IP"
+    fi
   fi
   
   dokku_log_info1 "Server Public IP: $SERVER_IP"
@@ -122,7 +158,7 @@ dns_global_report() {
   dokku_log_info2 "$(printf "%-15s %-30s %-8s %-15s %-12s %s" "App" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
   dokku_log_info2 "$(printf "%-15s %-30s %-8s %-15s %-12s %s" "---" "------" "---" "------" "--------" "-----------")"
   
-  # First pass: collect all domains and count them
+  # First pass: collect all domains from DNS DOMAINS files and count them
   local ALL_DOMAINS=""
   local TOTAL_DOMAINS=0
   local SYNCED_DOMAINS=0
@@ -130,22 +166,21 @@ dns_global_report() {
   while IFS= read -r APP; do
     [[ -z "$APP" ]] && continue
     
-    # Get app domains
-    local APP_DOMAINS
-    APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
-    
-    if [[ -n "$APP_DOMAINS" ]]; then
-      for DOMAIN in $APP_DOMAINS; do
+    # Get domains that were actually added to DNS (from per-app DOMAINS file)
+    local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
+    if [[ -f "$APP_DOMAINS_FILE" ]]; then
+      while IFS= read -r DOMAIN; do
         [[ -z "$DOMAIN" ]] && continue
-        ALL_DOMAINS="$ALL_DOMAINS$APP:$DOMAIN\n"
-        ((TOTAL_DOMAINS++))
-      done
+        ALL_DOMAINS="${ALL_DOMAINS}${APP}:${DOMAIN}\n"
+        TOTAL_DOMAINS=$((TOTAL_DOMAINS + 1))
+      done < "$APP_DOMAINS_FILE"
     fi
   done <<< "$APPS_LIST"
   
   # Convert to proper format for processing
-  ALL_DOMAINS=$(echo -e "$ALL_DOMAINS" | grep -v "^$")
-  TOTAL_DOMAINS=$(echo "$ALL_DOMAINS" | wc -l | xargs)
+  if [[ -n "$ALL_DOMAINS" ]]; then
+    ALL_DOMAINS=$(echo -e "$ALL_DOMAINS" | grep -v "^$")
+  fi
   
   # Analyze each app and display only domains that were actually added to DNS
   while IFS= read -r APP; do
@@ -165,9 +200,11 @@ dns_global_report() {
       for DOMAIN in $APP_DNS_DOMAINS; do
         [[ -z "$DOMAIN" ]] && continue
         
-        # Get current DNS resolution
-        local CURRENT_IP
-        CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")
+        # Get current DNS resolution (handle failure gracefully)
+        local CURRENT_IP=""
+        if command -v dig >/dev/null 2>&1; then
+          CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")
+        fi
         
         # Determine DNS status emoji
         local DNS_EMOJI="❌"
@@ -182,16 +219,20 @@ dns_global_report() {
         # These domains are from the DOMAINS file, so they were added
         local APP_DNS_STATUS="Added"
         
-        # Try to get hosted zone if provider is AWS and ready
+        # Try to get hosted zone if provider is AWS and ready (handle failure gracefully)
         local HOSTED_ZONE="-"
         if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
           if declare -f "dns_provider_aws_get_hosted_zone_id" >/dev/null 2>&1; then
-            local ZONE_ID
+            local ZONE_ID=""
             ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null || echo "")
             if [[ -n "$ZONE_ID" ]]; then
-              # Get the zone name from AWS
-              local ZONE_NAME
-              ZONE_NAME=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'HostedZone.Name' --output text 2>/dev/null | sed 's/\.$//g' || echo "$ZONE_ID")
+              # Get the zone name from AWS (handle failure gracefully)
+              local ZONE_NAME=""
+              if command -v aws >/dev/null 2>&1; then
+                ZONE_NAME=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'HostedZone.Name' --output text 2>/dev/null | sed 's/\.$//g' || echo "$ZONE_ID")
+              else
+                ZONE_NAME="$ZONE_ID"
+              fi
               HOSTED_ZONE="$ZONE_NAME"
             else
               HOSTED_ZONE="Not found"
@@ -214,8 +255,9 @@ dns_global_report() {
   
   # Count correctly configured domains separately to avoid subshell issues
   CORRECTLY_CONFIGURED_DOMAINS=0
-  if [[ -n "$ALL_DOMAINS" ]]; then
+  if [[ -n "$ALL_DOMAINS" ]] && [[ "$TOTAL_DOMAINS" -gt 0 ]]; then
     while IFS=: read -r APP DOMAIN; do
+      [[ -z "$APP" ]] && continue
       [[ -z "$DOMAIN" ]] && continue
       local CURRENT_IP
       CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")

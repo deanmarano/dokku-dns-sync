@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define property functions if not available
+if ! declare -f fn-plugin-property-setup >/dev/null 2>&1; then
+  fn-plugin-property-setup() {
+    local PLUGIN_PREFIX="$1"
+    # Simple property setup - create directories
+    mkdir -p "$PLUGIN_DATA_ROOT" 2>/dev/null || true
+    return 0
+  }
+fi
 
 detect_and_configure_provider() {
   local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"

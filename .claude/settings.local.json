@@ -30,7 +30,13 @@
       "Bash(find:*)",
       "Bash(docker logs:*)",
       "Bash(echo \"Exit code: $?\")",
-      "Bash(docker run:*)"
+      "Bash(docker run:*)",
+      "Bash(timeout:*)",
+      "Bash(./debug-report.sh:*)",
+      "Bash(./test-report-format.sh:*)",
+      "Bash(./wait-and-test.sh:*)",
+      "Bash(./test-dev.sh test:*)",
+      "Bash(./test-dev.sh:*)"
     ],
     "deny": []
   }
