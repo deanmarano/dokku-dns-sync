@@ -83,7 +83,14 @@ run_direct_tests() {
     }
     
     log "INFO" "Copying and executing integration test script..."
-    if docker exec -i "$DOKKU_CONTAINER" bash -c "cat > /tmp/dns-integration-tests.sh && chmod +x /tmp/dns-integration-tests.sh && sudo bash /tmp/dns-integration-tests.sh" < "$SCRIPT_DIR/dns-integration-tests.sh"; then
+    # Use the new comprehensive integration test script
+    local INTEGRATION_SCRIPT="$SCRIPT_DIR/../../test-integration.sh"
+    if [[ ! -f "$INTEGRATION_SCRIPT" ]]; then
+        log "ERROR" "Integration test script not found: $INTEGRATION_SCRIPT"
+        return 1
+    fi
+    
+    if docker exec -i "$DOKKU_CONTAINER" bash -c "cat > /tmp/test-integration.sh && chmod +x /tmp/test-integration.sh && cd /tmp/dokku-dns && /tmp/test-integration.sh" < "$INTEGRATION_SCRIPT"; then
         log "SUCCESS" "All tests completed successfully!"
         log "INFO" "DNS plugin functionality verified with comprehensive test suite"
         return 0
