@@ -1,12 +1,38 @@
 #!/usr/bin/env bash
-export DOKKU_LIB_ROOT="/var/lib/dokku"
-export PATH="$PATH:$DOKKU_LIB_ROOT/plugins/available/dns/subcommands"
+
+# Load test environment overrides for CI/local testing
+if [[ ! -d "/var/lib/dokku" ]] || [[ ! -w "/var/lib/dokku" ]]; then
+  source "$(dirname "${BASH_SOURCE[0]}")/mock_dokku_environment.bash"
+else
+  # Use real Dokku environment if available
+  export DOKKU_LIB_ROOT="/var/lib/dokku"
+  export PATH="$PATH:$DOKKU_LIB_ROOT/plugins/available/dns/subcommands"
+fi
+
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
 
+# Add subcommands and test bin to PATH for testing (prioritize test bin)
+PLUGIN_ROOT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")"
+TEST_BIN_DIR="$(dirname "${BASH_SOURCE[0]}")/bin"
+export PATH="$TEST_BIN_DIR:$PLUGIN_ROOT/subcommands:$PATH"
+
+# Ensure our test dokku takes precedence over system dokku
+if [[ -f "$TEST_BIN_DIR/dokku" ]]; then
+  alias dokku="$TEST_BIN_DIR/dokku"
+fi
+
 # DNS plugin test helper functions
+
+# Function to call DNS subcommands directly (for testing)
+dns_cmd() {
+  local subcmd="$1"
+  shift
+  "$PLUGIN_ROOT/subcommands/$subcmd" "$@"
+}
+
 setup_dns_provider() {
   local provider="${1:-aws}"
-  dokku dns:configure "$provider" >/dev/null 2>&1 || true
+  dns_cmd configure "$provider" >/dev/null 2>&1 || true
 }
 
 cleanup_dns_data() {

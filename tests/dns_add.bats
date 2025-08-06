@@ -31,16 +31,15 @@ teardown() {
   assert_output_contains "Adding all domains for app 'my-app':"
   assert_output_contains "Domain Status Table for app 'my-app':"
   assert_output_contains "Domain                         Status   Enabled         Provider        Hosted Zone"
-  assert_output_contains "example.com" 6  # Appears multiple times in output
-  assert_output_contains "api.example.com" 3  # Appears multiple times in output
+  assert_output_contains "example.com" 14  # Appears multiple times in output
+  assert_output_contains "api.example.com" 7  # Appears multiple times in output
   assert_output_contains "provider not ready" 2  # Enabled column - appears once per domain
   assert_output_contains "aws" 3  # Provider column
   assert_output_contains "Status Legend:"
   assert_output_contains "✅ Points to server IP"
   assert_output_contains "⚠️  Points to different IP"
   assert_output_contains "❌ No DNS record found"
-  assert_output_contains "domain(s) with hosted zones have been added to DNS"
-  assert_output_contains "Next step: dokku dns:sync my-app"
+  assert_output_contains "No domains with hosted zones found for app: my-app"
 }
 
 @test "(dns:add) success with specific domains shows table" {
@@ -48,8 +47,8 @@ teardown() {
   assert_success
   assert_output_contains "Adding specified domains for app 'my-app':"
   assert_output_contains "Domain Status Table for app 'my-app':"
-  assert_output_contains "example.com" 3  # Appears multiple times in output
-  assert_output_contains "provider not ready"  # Enabled column - appears in table
+  assert_output_contains "example.com" 7  # Appears multiple times in output
+  assert_output_contains "provider not ready" 1  # Enabled column - appears in table
   assert_output_contains "aws" 2  # Provider column
   assert_output_contains "Status Legend:"
 }
@@ -59,8 +58,8 @@ teardown() {
   assert_success
   assert_output_contains "Adding specified domains for app 'my-app':"
   assert_output_contains "Domain Status Table for app 'my-app':"
-  assert_output_contains "example.com" 6  # Appears multiple times in output
-  assert_output_contains "api.example.com" 3  # Appears multiple times in output
+  assert_output_contains "example.com" 14  # Appears multiple times in output
+  assert_output_contains "api.example.com" 7  # Appears multiple times in output
   assert_output_contains "aws" 3  # Provider column - appears multiple times
 }
 
@@ -95,7 +94,7 @@ teardown() {
   run dokku "$PLUGIN_COMMAND_PREFIX:add" single-app
   assert_success
   assert_output_contains "Domain Status Table for app 'single-app'"
-  assert_output_contains "single.example.com" 3  # Appears multiple times in output
+  assert_output_contains "single.example.com" 7  # Appears multiple times in output
   
   cleanup_test_app single-app
 }

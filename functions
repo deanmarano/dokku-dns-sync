@@ -309,6 +309,10 @@ dns_add_app_domains() {
     echo
   fi
   
+  # Always show status table for all requested domains
+  echo
+  dns_display_domains_table "$APP" "${NEW_DOMAINS[@]}"
+  
   # Check if we have any valid domains left
   if [[ ${#VALID_DOMAINS[@]} -eq 0 ]]; then
     dokku_log_warn "No domains with hosted zones found for app: $APP"
@@ -343,9 +347,6 @@ dns_add_app_domains() {
     sort -u "$APP_DOMAINS_FILE" > "${APP_DOMAINS_FILE}.tmp"
     mv "${APP_DOMAINS_FILE}.tmp" "$APP_DOMAINS_FILE"
   fi
-  
-  # Display the domains table with status information (only for valid domains)
-  dns_display_domains_table "$APP" "${VALID_DOMAINS[@]}"
   
   dokku_log_info1 "${#VALID_DOMAINS[@]} domain(s) with hosted zones have been added to DNS"
   dokku_log_info1 "Next step: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"

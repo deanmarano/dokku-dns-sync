@@ -2,7 +2,29 @@
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f dokku_log_info1 >/dev/null 2>&1; then
+  dokku_log_info1() { echo "-----> $*"; }
+fi
+
+if ! declare -f dokku_log_info2 >/dev/null 2>&1; then
+  dokku_log_info2() { echo "=====> $*"; }
+fi
+
+if ! declare -f dokku_log_warn >/dev/null 2>&1; then
+  dokku_log_warn() { echo " !     $*"; }
+fi
+
+if ! declare -f dokku_log_fail >/dev/null 2>&1; then
+  dokku_log_fail() { echo " !     $*" >&2; exit 1; }
+fi
+
 source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 
 service-verify-cmd() {
@@ -10,7 +32,7 @@ service-verify-cmd() {
   #E dokku $PLUGIN_COMMAND_PREFIX:verify
   #E for AWS: checks if AWS CLI is configured, tests Route53 access, shows existing DNS records for Dokku domains
   #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN if not set, then validates access
-  declare desc="verify DNS provider setup and connectivity, discover existing DNS records"
+  declare desc="verify DNS provider setup and connectivity"
   local cmd="$PLUGIN_COMMAND_PREFIX:verify" argv=("$@")
   [[ ${argv[0]} == "$cmd" ]] && shift 1
   
