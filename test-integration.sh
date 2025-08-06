@@ -158,7 +158,7 @@ test_dns_verify() {
     dokku dns:configure aws >/dev/null 2>&1
     
     # Test verification (will show AWS CLI not configured, which is expected)
-    assert_output_contains "Verify shows AWS CLI status" "AWS CLI" dokku dns:verify
+    assert_output_contains "Verify shows AWS CLI status" "AWS CLI is not installed" dokku dns:verify
     
     # Test with no provider
     dokku dns:configure none >/dev/null 2>&1 || true

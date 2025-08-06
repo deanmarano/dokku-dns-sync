@@ -19,6 +19,13 @@ services:
     container_name: dokku-local
     networks:
       - dokku-net
+    command: >
+      bash -c "
+      /sbin/my_init &
+      sleep 5 &&
+      chown -R dokku:dokku /var/lib/dokku/data/dns 2>/dev/null || true &&
+      wait
+      "
 
   test-runner:
     build:
