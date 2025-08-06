@@ -17,12 +17,13 @@ sudo dokku plugin:install https://github.com/dokku/dokku-dns.git --name dns
 ## Commands
 
 ```
-dns:add <app>            # add app domains to dns provider for management
-dns:configure <provider> # configure or change the global dns provider
-dns:remove <app>         # remove app from dns management
-dns:report <app>         # display DNS status and domain information for app(s)
-dns:sync <app>           # synchronize DNS records for app
-dns:verify               # verify DNS provider setup and connectivity, discover existing DNS records
+dns:add <app>             # add app domains to dns provider for management
+dns:configure <provider>  # configure or change the global dns provider
+dns:remove <app>          # remove app from dns management
+dns:report <app>          # display DNS status and domain information for app(s)
+dns:sync <app>            # synchronize DNS records for app
+dns:verify                # verify DNS provider setup and connectivity
+dns:version <aws-version> # show DNS plugin version and dependency versions
 ```
 
 ## Usage
@@ -45,7 +46,7 @@ dokku dns:add nextcloud
 dokku dns:add nextcloud example.com api.example.com
 ```
 
-By default, adds all domains configured for the app optionally specify specific domains to add to `DNS` management this registers domains with the `DNS` provider but doesn`t update records yet use `dokku dns:sync` to update `DNS` records:
+By default, adds all domains configured for the app optionally specify specific domains to add to `DNS` management only domains with hosted zones in the `DNS` provider will be added this registers domains with the `DNS` provider but doesn`t update records yet use `dokku dns:sync` to update `DNS` records:
 
 ### configure or change the global dns provider
 
@@ -62,7 +63,7 @@ dokku dns:configure [aws|cloudflare]
 
 This sets up or changes the `DNS` provider for all `DNS` management. If no provider is specified, defaults to `$DNS_DEFAULT_PROVIDER` if provider is already configured, this will change to the new provider after configuration, use other commands to: - configure credentials: dokku dns:verify - sync an app: dokku dns:sync myapp:
 
-### verify DNS provider setup and connectivity, discover existing DNS records
+### verify DNS provider setup and connectivity
 
 ```shell
 # usage
