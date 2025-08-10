@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Test wrapper for dokku DNS commands
+
+# Extract the DNS command  
+# Handle both normal test environment and Docker test environment
+BIN_DIR="$(dirname "${BASH_SOURCE[0]}")"
+if [[ -d "$BIN_DIR/../subcommands" ]]; then
+    # Docker test environment - subcommands in same directory level
+    PLUGIN_ROOT="$(cd "$BIN_DIR/.." && pwd)"
+else
+    # Normal test environment - subcommands in parent's parent directory
+    PLUGIN_ROOT="$(cd "$BIN_DIR/../.." && pwd)"
+fi
+if [[ "$1" == "dns:verify" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/verify" "${@:2}"
+elif [[ "$1" == "dns:configure" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/configure" "${@:2}"
+elif [[ "$1" == "dns:add" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/add" "${@:2}"
+elif [[ "$1" == "dns:sync" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/sync" "${@:2}"
+elif [[ "$1" == "dns:remove" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/remove" "${@:2}"
+elif [[ "$1" == "dns:report" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/report" "${@:2}"
+elif [[ "$1" == "dns:version" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/version" "${@:2}"
+elif [[ "$1" == "dns:help" ]] || [[ "$1" == "dns" ]]; then
+    exec "$PLUGIN_ROOT/commands" "$@"
+elif [[ "$1" =~ ^dns:[^:]+:help$ ]]; then
+    # Handle subcommand help like dns:configure:help
+    SUBCOMMAND=$(echo "$1" | sed 's/^dns:\([^:]*\):help$/\1/')
+    exec "$PLUGIN_ROOT/commands" "dns:help" "$SUBCOMMAND"
+else
+    # For non-DNS commands, provide basic mocks
+    # Use apps tracking file from environment variable
+    case "$1" in
+        "apps:create")
+            echo "Creating app: $2"
+            if [[ -n "$DOKKU_APPS_FILE" ]]; then
+                echo "$2" >> "$DOKKU_APPS_FILE"
+            fi
+            ;;
+        "domains:add")
+            echo "Adding domain $3 to app $2"
+            # Store domain for this app
+            if [[ -n "$DOKKU_APPS_FILE" ]]; then
+                DOMAINS_DIR="$(dirname "$DOKKU_APPS_FILE")/domains"
+                mkdir -p "$DOMAINS_DIR"
+                echo "$3" >> "$DOMAINS_DIR/$2"
+            fi
+            ;;
+        "domains:report")
+            # Return domains for specific app if available
+            APP_ARG="$2"
+            if [[ -n "$DOKKU_APPS_FILE" ]]; then
+                DOMAINS_DIR="$(dirname "$DOKKU_APPS_FILE")/domains"
+                if [[ -f "$DOMAINS_DIR/$APP_ARG" ]]; then
+                    tr '\n' ' ' < "$DOMAINS_DIR/$APP_ARG"
+                    echo
+                else
+                    # No domains for this app
+                    echo ""
+                fi
+            else
+                echo "example.com api.example.com"
+            fi
+            ;;
+        "apps:list")
+            if [[ -f "$DOKKU_APPS_FILE" ]]; then
+                cat "$DOKKU_APPS_FILE"
+            else
+                echo "testapp"
+                echo "nextcloud"
+            fi
+            ;;
+        *)
+            echo "Mock dokku: $*"
+            ;;
+    esac
+fi

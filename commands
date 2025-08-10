@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
 [[ " help $PLUGIN_COMMAND_PREFIX:help $PLUGIN_COMMAND_PREFIX $PLUGIN_COMMAND_PREFIX:default " == *" $1 "* ]] || [[ "$1" == "$PLUGIN_COMMAND_PREFIX:"* ]] || exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f dokku_log_fail >/dev/null 2>&1; then
+  dokku_log_fail() { echo " !     $*" >&2; exit 1; }
+fi
 
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/help-functions"
 
-if [[ ! -d $PLUGIN_CONFIG_ROOT ]]; then
-  dokku_log_fail "$PLUGIN_SERVICE: Please run: sudo dokku plugin:install"
+# Allow help commands to work even without full configuration
+if [[ "$1" == "help" || "$1" == "$PLUGIN_COMMAND_PREFIX:help" ]]; then
+  fn-help "$@"
+  exit 0
 fi
 
 if [[ ! -d $PLUGIN_DATA_ROOT ]]; then
-  dokku_log_fail "$PLUGIN_SERVICE: Please run: sudo dokku plugin:install"
+  dokku_log_fail "$PLUGIN_SERVICE: Plugin data directory not found. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
 fi
 
 fn-help "$@"

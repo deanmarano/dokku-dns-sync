@@ -1,36 +1,26 @@
 #!/usr/bin/env bash
-_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export POSTGRES_IMAGE=${POSTGRES_IMAGE:="$(awk -F '[ :]' '{print $2}' "${_DIR}/Dockerfile")"}
-export POSTGRES_IMAGE_VERSION=${POSTGRES_IMAGE_VERSION:="$(awk -F '[ :]' '{print $3}' "${_DIR}/Dockerfile")"}
-export POSTGRES_ROOT=${POSTGRES_ROOT:="$DOKKU_LIB_ROOT/services/postgres"}
-export DOKKU_LIB_HOST_ROOT=${DOKKU_LIB_HOST_ROOT:=$DOKKU_LIB_ROOT}
-export POSTGRES_HOST_ROOT=${POSTGRES_HOST_ROOT:="$DOKKU_LIB_HOST_ROOT/services/postgres"}
+# DNS Plugin Configuration
 
-export PLUGIN_UNIMPLEMENTED_SUBCOMMANDS=()
-export PLUGIN_COMMAND_PREFIX="postgres"
-export PLUGIN_CONFIG_ROOT=${PLUGIN_CONFIG_ROOT:="$DOKKU_LIB_ROOT/config/$PLUGIN_COMMAND_PREFIX"}
-export PLUGIN_DATA_ROOT=$POSTGRES_ROOT
-export PLUGIN_DATA_HOST_ROOT=$POSTGRES_HOST_ROOT
-export PLUGIN_DATASTORE_PORTS=(5432)
-export PLUGIN_DATASTORE_WAIT_PORT=5432
-export PLUGIN_DEFAULT_ALIAS="DATABASE"
-export PLUGIN_DISABLE_PULL=${POSTGRES_DISABLE_PULL:=}
-export PLUGIN_DISABLE_PULL_VARIABLE="POSTGRES_DISABLE_PULL"
-export PLUGIN_ALT_ALIAS="DOKKU_POSTGRES"
-export PLUGIN_IMAGE=$POSTGRES_IMAGE
-export PLUGIN_IMAGE_VERSION=$POSTGRES_IMAGE_VERSION
-export PLUGIN_SCHEME="postgres"
-export PLUGIN_SERVICE="Postgres"
-export PLUGIN_VARIABLE="POSTGRES"
-export PLUGIN_BASE_PATH="$PLUGIN_PATH"
-export PLUGIN_CONFIG_SUFFIX="data"
+export PLUGIN_COMMAND_PREFIX="dns"
+export PLUGIN_SERVICE="DNS"
+export PLUGIN_DATA_ROOT=${DNS_ROOT:="${DOKKU_LIB_ROOT:-/var/lib/dokku}/data/dns"}
+export PLUGIN_CONFIG_ROOT=${DNS_CONFIG_ROOT:="${DOKKU_LIB_ROOT:-/var/lib/dokku}/config/dns"}
+
+# DNS-specific defaults
+export DNS_DEFAULT_PROVIDER="aws"
 if [[ -n $DOKKU_API_VERSION ]]; then
   export PLUGIN_BASE_PATH="$PLUGIN_ENABLED_PATH"
 fi
 
+# DNS Backend Images - using busybox as base for now since we don't need containers for DNS operations
 export PLUGIN_BUSYBOX_IMAGE=${PLUGIN_BUSYBOX_IMAGE:=busybox:1.37.0-uclibc}
-export PLUGIN_AMBASSADOR_IMAGE=${PLUGIN_AMBASSADOR_IMAGE:=dokku/ambassador:0.8.2}
-export PLUGIN_S3BACKUP_IMAGE=${PLUGIN_S3BACKUP_IMAGE:=dokku/s3backup:0.18.0}
-export PLUGIN_WAIT_IMAGE=${PLUGIN_WAIT_IMAGE:=dokku/wait:0.9.3}
 
-export POSTGRES_CONFIG_OPTIONS=${POSTGRES_CONFIG_OPTIONS:=""}
+# DNS specific configuration
+export DNS_CONFIG_OPTIONS=${DNS_CONFIG_OPTIONS:=""}
+
+# Plugin configuration for documentation generation
+export PLUGIN_VARIABLE="DNS"
+export PLUGIN_DEFAULT_ALIAS="DNS"
+export PLUGIN_SCHEME="dns"
+export PLUGIN_DATASTORE_PORTS=("53")
+export PLUGIN_UNIMPLEMENTED_SUBCOMMANDS=("connect" "enter" "expose" "unexpose" "promote" "start" "stop" "pause" "restart" "upgrade" "app-links" "clone" "exists" "linked" "links" "import" "export" "backup-auth" "backup-deauth" "backup" "backup-set-encryption" "backup-set-public-key-encryption" "backup-unset-encryption" "backup-unset-public-key-encryption" "backup-schedule" "backup-schedule-cat" "backup-unschedule")

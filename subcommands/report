@@ -1,0 +1,499 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f verify_app_name >/dev/null 2>&1; then
+  verify_app_name() {
+    local app="$1"
+    [[ -n "$app" ]] || { echo " !     Please specify an app name" >&2; exit 1; }
+  }
+fi
+
+if ! declare -f dokku_log_info1 >/dev/null 2>&1; then
+  dokku_log_info1() { echo "-----> $*"; }
+fi
+
+if ! declare -f dokku_log_info2 >/dev/null 2>&1; then
+  dokku_log_info2() { echo "=====> $*"; }
+fi
+
+if ! declare -f dokku_log_warn >/dev/null 2>&1; then
+  dokku_log_warn() { echo " !     $*"; }
+fi
+
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-report-cmd() {
+  #E display DNS status and domain information for app(s)
+  #E dokku $PLUGIN_COMMAND_PREFIX:report [app]
+  #E shows server IP, domains, DNS status with emojis, and hosted zones
+  #E without app: shows all apps and their domains
+  #E with app: shows detailed report for specific app
+  #E DNS status: ✅ correct, ⚠️ wrong IP, ❌ no record
+  #A app, app to generate DNS report for (optional - shows all apps if omitted)
+  declare desc="display DNS status and domain information for app(s)"
+  local cmd="$PLUGIN_COMMAND_PREFIX:report" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+  declare APP="$1"
+
+  if [[ -z "$APP" ]]; then
+    dns_global_report
+  else
+    verify_app_name "$APP"
+    dns_report "$APP"
+  fi
+}
+
+dns_global_report() {
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  
+  dokku_log_info2 "DNS Global Report - All Apps"
+  dokku_log_info2 "$(printf "%-50s" "==================================")"
+  
+  # Get server's public IP first (handle failure gracefully)
+  local SERVER_IP="127.0.0.1"  # Default fallback
+  local GLOBAL_DOMAINS=""
+  
+  if command -v dokku >/dev/null 2>&1; then
+    GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
+  fi
+  
+  if [[ -n "$GLOBAL_DOMAINS" ]] && command -v dig >/dev/null 2>&1; then
+    # Use the first global domain to resolve server IP
+    local FIRST_GLOBAL_DOMAIN
+    FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
+    local RESOLVED_IP
+    RESOLVED_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" 2>/dev/null | tail -n1 || echo "")
+    if [[ -n "$RESOLVED_IP" ]]; then
+      SERVER_IP="$RESOLVED_IP"
+    fi
+  fi
+  
+  # If no global domains or couldn't resolve, try to get server IP another way
+  if [[ "$SERVER_IP" == "127.0.0.1" ]] && command -v curl >/dev/null 2>&1; then
+    # Try to get the server's public IP
+    local PUBLIC_IP
+    PUBLIC_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || curl -s --max-time 3 ipecho.net/plain 2>/dev/null || curl -s --max-time 3 icanhazip.com 2>/dev/null || echo "")
+    if [[ -n "$PUBLIC_IP" ]]; then
+      SERVER_IP="$PUBLIC_IP"
+    fi
+  fi
+  
+  dokku_log_info1 "Server Public IP: $SERVER_IP"
+  
+  # Check global DNS configuration
+  local PROVIDER="None"
+  local CONFIG_STATUS="Not configured"
+  
+  if [[ -f "$PROVIDER_FILE" ]]; then
+    PROVIDER=$(cat "$PROVIDER_FILE" 2>/dev/null || echo "None")
+    if [[ -n "$PROVIDER" ]] && [[ "$PROVIDER" != "None" ]]; then
+      CONFIG_STATUS="Configured"
+    fi
+  fi
+  
+  # Display global configuration
+  dokku_log_info1 "Global DNS Provider: $PROVIDER"
+  dokku_log_info1 "Configuration Status: $CONFIG_STATUS"
+  
+  # Get apps under DNS management
+  local APPS_LIST
+  APPS_LIST=$(get_dns_managed_apps)
+  
+  if [[ -z "$APPS_LIST" ]]; then
+    dokku_log_warn "No apps have been added to DNS"
+    dokku_log_info1 "Add an app to DNS with: dokku $PLUGIN_COMMAND_PREFIX:add <app-name>"
+    return 0
+  fi
+  
+  # Check global provider credentials
+  local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
+  local SYNC_STATUS="Not ready"
+  
+  if [[ "$PROVIDER" != "None" ]] && [[ -d "$CREDENTIALS_DIR" ]]; then
+    case "$PROVIDER" in
+      aws)
+        if [[ -f "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID" ]] || aws sts get-caller-identity >/dev/null 2>&1; then
+          SYNC_STATUS="Ready"
+        else
+          SYNC_STATUS="Missing auth"
+        fi
+        ;;
+      cloudflare)
+        if [[ -f "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN" ]]; then
+          SYNC_STATUS="Ready"
+        else
+          SYNC_STATUS="Missing auth"
+        fi
+        ;;
+      *)
+        SYNC_STATUS="Unknown provider"
+        ;;
+    esac
+  elif [[ "$PROVIDER" == "None" ]]; then
+    SYNC_STATUS="Not configured"
+  fi
+  
+  # Load provider functions if available
+  if [[ "$PROVIDER" != "None" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+    local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
+    if [[ -f "$PROVIDER_SCRIPT" ]]; then
+      source "$PROVIDER_SCRIPT"
+      if [[ "$PROVIDER" == "aws" ]]; then
+        dns_provider_aws_setup_env
+      fi
+    fi
+  fi
+  
+  echo
+  dokku_log_info2 "All Apps Domain Analysis:"
+  dokku_log_info2 "$(printf "%-15s %-30s %-8s %-15s %-12s %s" "App" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
+  dokku_log_info2 "$(printf "%-15s %-30s %-8s %-15s %-12s %s" "---" "------" "---" "------" "--------" "-----------")"
+  
+  # First pass: collect all domains from DNS DOMAINS files and count them
+  local ALL_DOMAINS=""
+  local TOTAL_DOMAINS=0
+  local SYNCED_DOMAINS=0
+  
+  while IFS= read -r APP; do
+    [[ -z "$APP" ]] && continue
+    
+    # Get domains that were actually added to DNS (from per-app DOMAINS file)
+    local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
+    if [[ -f "$APP_DOMAINS_FILE" ]]; then
+      while IFS= read -r DOMAIN; do
+        [[ -z "$DOMAIN" ]] && continue
+        ALL_DOMAINS="${ALL_DOMAINS}${APP}:${DOMAIN}\n"
+        TOTAL_DOMAINS=$((TOTAL_DOMAINS + 1))
+      done < "$APP_DOMAINS_FILE"
+    fi
+  done <<< "$APPS_LIST"
+  
+  # Convert to proper format for processing
+  if [[ -n "$ALL_DOMAINS" ]]; then
+    ALL_DOMAINS=$(echo -e "$ALL_DOMAINS" | grep -v "^$")
+  fi
+  
+  # Analyze each app and display only domains that were actually added to DNS
+  while IFS= read -r APP; do
+    [[ -z "$APP" ]] && continue
+    
+    # Get domains that were actually added to DNS (from per-app DOMAINS file)
+    local APP_DNS_DOMAINS=""
+    local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
+    if [[ -f "$APP_DOMAINS_FILE" ]]; then
+      APP_DNS_DOMAINS=$(tr '\n' ' ' < "$APP_DOMAINS_FILE" 2>/dev/null)
+    fi
+    
+    if [[ -z "$APP_DNS_DOMAINS" ]]; then
+      printf "%-15s %-30s %-8s %-15s %-12s %s\n" "$APP" "(no domains added)" "➖" "Not added" "$PROVIDER" "-"
+    else
+      local FIRST_DOMAIN=true
+      for DOMAIN in $APP_DNS_DOMAINS; do
+        [[ -z "$DOMAIN" ]] && continue
+        
+        # Get current DNS resolution (handle failure gracefully)
+        local CURRENT_IP=""
+        if command -v dig >/dev/null 2>&1; then
+          CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")
+        fi
+        
+        # Determine DNS status emoji
+        local DNS_EMOJI="❌"
+        if [[ -n "$CURRENT_IP" ]]; then
+          if [[ "$CURRENT_IP" == "$SERVER_IP" ]]; then
+            DNS_EMOJI="✅"
+          else
+            DNS_EMOJI="⚠️"
+          fi
+        fi
+        
+        # These domains are from the DOMAINS file, so they were added
+        local APP_DNS_STATUS="Added"
+        
+        # Try to get hosted zone if provider is AWS and ready (handle failure gracefully)
+        local HOSTED_ZONE="-"
+        if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+          if declare -f "dns_provider_aws_get_hosted_zone_id" >/dev/null 2>&1; then
+            local ZONE_ID=""
+            ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null || echo "")
+            if [[ -n "$ZONE_ID" ]]; then
+              # Get the zone name from AWS (handle failure gracefully)
+              local ZONE_NAME=""
+              if command -v aws >/dev/null 2>&1; then
+                ZONE_NAME=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'HostedZone.Name' --output text 2>/dev/null | sed 's/\.$//g' || echo "$ZONE_ID")
+              else
+                ZONE_NAME="$ZONE_ID"
+              fi
+              HOSTED_ZONE="$ZONE_NAME"
+            else
+              HOSTED_ZONE="Not found"
+            fi
+          fi
+        fi
+        
+        # Show app name only for first domain
+        local APP_DISPLAY="$APP"
+        if [[ "$FIRST_DOMAIN" != true ]]; then
+          APP_DISPLAY=""
+        fi
+        FIRST_DOMAIN=false
+        
+        # Format and display the row
+        printf "%-15s %-30s %-8s %-15s %-12s %s\n" "$APP_DISPLAY" "$DOMAIN" "$DNS_EMOJI" "$APP_DNS_STATUS" "$PROVIDER" "$HOSTED_ZONE"
+      done
+    fi
+  done <<< "$APPS_LIST"
+  
+  # Count correctly configured domains separately to avoid subshell issues
+  CORRECTLY_CONFIGURED_DOMAINS=0
+  if [[ -n "$ALL_DOMAINS" ]] && [[ "$TOTAL_DOMAINS" -gt 0 ]]; then
+    while IFS=: read -r APP DOMAIN; do
+      [[ -z "$APP" ]] && continue
+      [[ -z "$DOMAIN" ]] && continue
+      local CURRENT_IP
+      CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")
+      if [[ -n "$CURRENT_IP" ]] && [[ "$CURRENT_IP" == "$SERVER_IP" ]]; then
+        ((CORRECTLY_CONFIGURED_DOMAINS++))
+      fi
+    done <<< "$ALL_DOMAINS"
+  fi
+  
+  echo
+  dokku_log_info2 "Summary:"
+  dokku_log_info1 "Total domains: $TOTAL_DOMAINS"
+  dokku_log_info1 "Correctly configured: $CORRECTLY_CONFIGURED_DOMAINS"
+  if [[ "$TOTAL_DOMAINS" -gt 0 ]]; then
+    local CONFIG_PERCENTAGE=$((CORRECTLY_CONFIGURED_DOMAINS * 100 / TOTAL_DOMAINS))
+    dokku_log_info1 "DNS status: ${CONFIG_PERCENTAGE}% correctly configured"
+  fi
+  
+  echo
+  dokku_log_info2 "DNS Status Legend:"
+  dokku_log_info1 "✅ Points to server IP ($SERVER_IP)"
+  dokku_log_info1 "⚠️  Points to different IP"
+  dokku_log_info1 "❌ No DNS record found"
+  dokku_log_info1 "➖ No domains configured"
+  
+  echo
+  dokku_log_info2 "Actions available:"
+  if [[ "$PROVIDER" == "None" ]]; then
+    dokku_log_info1 "1. Configure DNS provider: dokku $PLUGIN_COMMAND_PREFIX:configure [aws|cloudflare]"
+    dokku_log_info1 "2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify"
+    dokku_log_info1 "3. Add domains to apps: dokku domains:add <app> <domain>"
+    dokku_log_info1 "4. Update DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+  elif [[ "$SYNC_STATUS" == "Missing auth" ]]; then
+    dokku_log_info1 "Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify"
+    dokku_log_info1 "Then update DNS: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+  elif [[ "$SYNC_STATUS" == "Ready" ]]; then
+    dokku_log_info1 "Update all apps: for app in \$(dokku apps:list 2>/dev/null | grep -v ====); do dokku $PLUGIN_COMMAND_PREFIX:sync \$app; done"
+    dokku_log_info1 "View app details: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
+  else
+    dokku_log_info1 "Fix configuration issues, then update apps individually"
+  fi
+  
+  echo
+  dokku_log_info2 "For detailed app-specific report: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
+}
+
+dns_report() {
+  local APP="$1"
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  
+  # Check if app has been added to DNS
+  local APP_IS_ADDED=false
+  if is_app_dns_managed "$APP"; then
+    APP_IS_ADDED=true
+  fi
+  
+  dokku_log_info2 "DNS Report for app: $APP"
+  dokku_log_info2 "$(printf "%-50s" "==============================")"
+  
+  # Get server's public IP first
+  local SERVER_IP
+  local GLOBAL_DOMAINS
+  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null || echo "")
+  
+  if [[ -n "$GLOBAL_DOMAINS" ]]; then
+    # Use the first global domain to resolve server IP
+    local FIRST_GLOBAL_DOMAIN
+    FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
+    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1 2>/dev/null || echo "")
+  fi
+  
+  # If no global domains or couldn't resolve, try to get server IP another way
+  if [[ -z "$SERVER_IP" ]]; then
+    # Try to get the server's public IP
+    SERVER_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || curl -s --max-time 3 ipecho.net/plain 2>/dev/null || curl -s --max-time 3 icanhazip.com 2>/dev/null || echo "Unknown")
+  fi
+  
+  dokku_log_info1 "Server Public IP: $SERVER_IP"
+  
+  # Get app domains
+  local APP_DOMAINS
+  APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || echo "")
+  
+  if [[ -z "$APP_DOMAINS" ]]; then
+    dokku_log_warn "No domains configured for app: $APP"
+    dokku_log_info1 "Add domains with: dokku domains:add $APP <domain>"
+    return 0
+  fi
+  
+  # Check global DNS configuration
+  local PROVIDER="None"
+  local CONFIG_STATUS="Not configured"
+  
+  if [[ -f "$PROVIDER_FILE" ]]; then
+    PROVIDER=$(cat "$PROVIDER_FILE" 2>/dev/null || echo "None")
+    if [[ -n "$PROVIDER" ]] && [[ "$PROVIDER" != "None" ]]; then
+      CONFIG_STATUS="Configured"
+    fi
+  fi
+  
+  # Display global configuration
+  dokku_log_info1 "Global DNS Provider: $PROVIDER"
+  dokku_log_info1 "Configuration Status: $CONFIG_STATUS"
+  
+  # Display DNS add status
+  if [[ "$APP_IS_ADDED" == "true" ]]; then
+    dokku_log_info1 "DNS Status: Added"
+  else
+    dokku_log_info1 "DNS Status: Not added (add with: dokku $PLUGIN_COMMAND_PREFIX:add $APP)"
+  fi
+  
+  echo
+  dokku_log_info2 "Domain Analysis:"
+  dokku_log_info2 "$(printf "%-35s %-8s %-20s %-12s %s" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
+  dokku_log_info2 "$(printf "%-35s %-8s %-20s %-12s %s" "------" "---" "------" "--------" "-----------")"
+  
+  # Check global provider credentials
+  local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
+  local SYNC_STATUS="Not ready"
+  
+  if [[ "$PROVIDER" != "None" ]] && [[ -d "$CREDENTIALS_DIR" ]]; then
+    case "$PROVIDER" in
+      aws)
+        if [[ -f "$CREDENTIALS_DIR/AWS_ACCESS_KEY_ID" ]] || aws sts get-caller-identity >/dev/null 2>&1; then
+          SYNC_STATUS="Ready"
+        else
+          SYNC_STATUS="Missing auth"
+        fi
+        ;;
+      cloudflare)
+        if [[ -f "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN" ]]; then
+          SYNC_STATUS="Ready"
+        else
+          SYNC_STATUS="Missing auth"
+        fi
+        ;;
+      *)
+        SYNC_STATUS="Unknown provider"
+        ;;
+    esac
+  elif [[ "$PROVIDER" == "None" ]]; then
+    SYNC_STATUS="Not configured"
+  fi
+  
+  # Load provider functions if available
+  if [[ "$PROVIDER" != "None" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+    local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
+    if [[ -f "$PROVIDER_SCRIPT" ]]; then
+      source "$PROVIDER_SCRIPT"
+      if [[ "$PROVIDER" == "aws" ]]; then
+        dns_provider_aws_setup_env
+      fi
+    fi
+  fi
+  
+  # Analyze each domain - split space-separated domains properly
+  for DOMAIN in $APP_DOMAINS; do
+    [[ -z "$DOMAIN" ]] && continue
+    
+    # Get current DNS resolution
+    local CURRENT_IP
+    CURRENT_IP=$(dig +short "$DOMAIN" A 2>/dev/null | tail -n1 || echo "")
+    
+    # Determine DNS status emoji
+    local DNS_EMOJI="❌"
+    if [[ -n "$CURRENT_IP" ]]; then
+      if [[ "$CURRENT_IP" == "$SERVER_IP" ]]; then
+        DNS_EMOJI="✅"
+      else
+        DNS_EMOJI="⚠️"
+      fi
+    fi
+    
+    # Try to get hosted zone if provider is AWS and ready
+    local HOSTED_ZONE="-"
+    local ZONE_ID=""
+    if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+      if declare -f "dns_provider_aws_get_hosted_zone_id" >/dev/null 2>&1; then
+        ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN" 2>/dev/null || echo "")
+        if [[ -n "$ZONE_ID" ]]; then
+          # Get the zone name from AWS
+          local ZONE_NAME
+          ZONE_NAME=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'HostedZone.Name' --output text 2>/dev/null | sed 's/\.$//g' || echo "$ZONE_ID")
+          HOSTED_ZONE="$ZONE_NAME"
+        else
+          HOSTED_ZONE="Not found"
+        fi
+      fi
+    fi
+    
+    # Check domain status - consider both DNS add status and hosted zone
+    local DOMAIN_STATUS="Not added"
+    if [[ "$APP_IS_ADDED" == "true" ]]; then
+      # App has been added to DNS, check hosted zone status
+      if [[ "$PROVIDER" == "aws" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+        if [[ -n "$ZONE_ID" ]]; then
+          DOMAIN_STATUS="Ready"
+        else
+          DOMAIN_STATUS="No hosted zone"
+        fi
+      elif [[ "$PROVIDER" != "None" ]] && [[ "$SYNC_STATUS" == "Ready" ]]; then
+        # For other providers, default to ready (they can implement their own logic)
+        DOMAIN_STATUS="Ready"
+      else
+        DOMAIN_STATUS="Provider not ready"
+      fi
+    else
+      # App has not been added to DNS
+      DOMAIN_STATUS="Not added"
+    fi
+    
+    # Format and display the row
+    printf "%-35s %-8s %-20s %-12s %s\n" "$DOMAIN" "$DNS_EMOJI" "$DOMAIN_STATUS" "$PROVIDER" "$HOSTED_ZONE"
+  done
+  
+  echo
+  dokku_log_info2 "DNS Status Legend:"
+  dokku_log_info1 "✅ Points to server IP ($SERVER_IP)"
+  dokku_log_info1 "⚠️  Points to different IP"
+  dokku_log_info1 "❌ No DNS record found"
+  
+  echo
+  dokku_log_info2 "Actions available:"
+  if [[ "$PROVIDER" == "None" ]]; then
+    dokku_log_info1 "1. Configure DNS provider: dokku $PLUGIN_COMMAND_PREFIX:configure [aws|cloudflare]"
+    dokku_log_info1 "2. Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify"
+    dokku_log_info1 "3. Update DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+  elif [[ "$SYNC_STATUS" == "Missing auth" ]]; then
+    dokku_log_info1 "Configure credentials: dokku $PLUGIN_COMMAND_PREFIX:verify"
+    dokku_log_info1 "Then update DNS: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+  elif [[ "$SYNC_STATUS" == "Ready" ]]; then
+    dokku_log_info1 "Update DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+  else
+    dokku_log_info1 "Fix configuration issues, then update: dokku $PLUGIN_COMMAND_PREFIX:sync $APP"
+  fi
+}
+
+service-report-cmd "$@"

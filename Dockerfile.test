@@ -1,0 +1,129 @@
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic dependencies including AWS CLI for tests
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    sudo \
+    wget \
+    bash \
+    awscli \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install BATS (Bash Automated Testing System)
+RUN git clone https://github.com/bats-core/bats-core.git /tmp/bats-core \
+    && cd /tmp/bats-core \
+    && ./install.sh /usr/local \
+    && rm -rf /tmp/bats-core
+
+# Install shellcheck for linting
+RUN apt-get update && apt-get install -y shellcheck && rm -rf /var/lib/apt/lists/*
+
+# Create dokku system user and directories
+RUN useradd -r -s /bin/bash -d /var/lib/dokku dokku \
+    && mkdir -p /var/lib/dokku \
+    && chown dokku:dokku /var/lib/dokku
+
+# Create mock functions file first
+RUN mkdir -p /var/lib/dokku/core/available/common \
+    && printf '#!/usr/bin/env bash\n\
+dokku_log_fail() { echo " !     $*" >&2; exit 1; }\n\
+dokku_log_warn() { echo " !     $*" >&2; }\n\
+dokku_log_info1() { echo "-----> $*"; }\n\
+dokku_log_info2() { echo "=====> $*"; }\n\
+dokku_log_verbose() { echo "       $*"; }\n\
+verify_app_name() { \n\
+  if [[ ! -d "/var/lib/dokku/apps/$1" ]]; then\n\
+    dokku_log_fail "App $1 does not exist"\n\
+  fi\n\
+}\n\
+verify_service_name() { true; }\n' > /var/lib/dokku/core/available/common/functions
+
+# Create directories
+RUN mkdir -p /var/lib/dokku/data/dns \
+    && mkdir -p /var/lib/dokku/apps
+
+# Create a mock dokku script
+RUN printf '#!/bin/bash\n\
+export PLUGIN_COMMAND_PREFIX="dns"\n\
+export PLUGIN_DATA_ROOT="/var/lib/dokku/data/dns"\n\
+export PLUGIN_CORE_AVAILABLE_PATH="/var/lib/dokku/core/available"\n\
+export DOKKU_LIB_ROOT="/var/lib/dokku"\n\
+\n\
+case "$1" in\n\
+  dns:*)\n\
+    SUBCOMMAND="${1#dns:}"\n\
+    shift\n\
+    if [[ -f "/plugin/subcommands/$SUBCOMMAND" ]]; then\n\
+      export PLUGIN_COMMAND_PREFIX PLUGIN_DATA_ROOT PLUGIN_CORE_AVAILABLE_PATH DOKKU_LIB_ROOT\n\
+      exec "/plugin/subcommands/$SUBCOMMAND" "$@"\n\
+    else\n\
+      echo "Unknown subcommand: $SUBCOMMAND" >&2\n\
+      exit 1\n\
+    fi\n\
+    ;;\n\
+  apps:*)\n\
+    case "$1" in\n\
+      apps:create)\n\
+        echo "-----> Creating ${2}..."\n\
+        mkdir -p "/var/lib/dokku/apps/${2}"\n\
+        ;;\n\
+      apps:destroy)\n\
+        echo "-----> Destroying ${2}..."\n\
+        rm -rf "/var/lib/dokku/apps/${2}"\n\
+        ;;\n\
+      apps:list)\n\
+        echo "=====> My Apps"\n\
+        ls -1 /var/lib/dokku/apps/ 2>/dev/null || true\n\
+        ;;\n\
+    esac\n\
+    ;;\n\
+  domains:*)\n\
+    case "$1" in\n\
+      domains:add)\n\
+        echo "-----> Added ${3} to ${2}"\n\
+        mkdir -p "/var/lib/dokku/apps/${2}"\n\
+        echo "${3}" >> "/var/lib/dokku/apps/${2}/VHOST"\n\
+        ;;\n\
+      domains:report)\n\
+        case "$3" in\n\
+          --domains-app-vhosts)\n\
+            if [[ -f "/var/lib/dokku/apps/${2}/VHOST" ]]; then\n\
+              tr "\\n" " " < "/var/lib/dokku/apps/${2}/VHOST"\n\
+            fi\n\
+            ;;\n\
+          --domains-global-vhosts)\n\
+            echo "example.com"\n\
+            ;;\n\
+          *)\n\
+            echo "=====> ${2} domains information"\n\
+            echo "       App domains: $(cat "/var/lib/dokku/apps/${2}/VHOST" 2>/dev/null | tr "\\n" " " || echo "none")"\n\
+            ;;\n\
+        esac\n\
+        ;;\n\
+    esac\n\
+    ;;\n\
+  *)\n\
+    echo "Mock dokku command: $*"\n\
+    ;;\n\
+esac\n' > /usr/local/bin/dokku && chmod +x /usr/local/bin/dokku
+
+# Set up working directory
+WORKDIR /plugin
+
+# Copy plugin files
+COPY . /plugin/
+
+# Make sure test files are executable
+RUN chmod +x tests/*.bats
+
+# Create a lighter test script that just runs the unit tests
+RUN echo '#!/bin/bash\nset -e\ncd /plugin\necho "Running BATS tests..."\ncd tests && bats *.bats' > /run-tests.sh \
+    && chmod +x /run-tests.sh
+
+# Run tests by default
+CMD ["/run-tests.sh"]
