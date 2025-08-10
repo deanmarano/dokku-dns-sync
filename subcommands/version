@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f dokku_log_info1 >/dev/null 2>&1; then
+  dokku_log_info1() { echo "-----> $*"; }
+fi
+
+if ! declare -f dokku_log_info2 >/dev/null 2>&1; then
+  dokku_log_info2() { echo "=====> $*"; }
+fi
+
+if ! declare -f dokku_log_warn >/dev/null 2>&1; then
+  dokku_log_warn() { echo " !     $*"; }
+fi
+
+if ! declare -f dokku_log_fail >/dev/null 2>&1; then
+  dokku_log_fail() { echo " !     $*" >&2; exit 1; }
+fi
+
+service-version-cmd() {
+  #E show DNS plugin version and dependency versions
+  #E dokku $PLUGIN_COMMAND_PREFIX:version
+  #E displays the DNS plugin version from plugin.toml and AWS CLI version
+  declare desc="show DNS plugin version and dependency versions"
+  local cmd="$PLUGIN_COMMAND_PREFIX:version" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+
+  local PLUGIN_ROOT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")"
+  local VERSION_FILE="$PLUGIN_ROOT/plugin.toml"
+  
+  # Show plugin version
+  if [[ -f "$VERSION_FILE" ]]; then
+    local VERSION=$(grep "^version" "$VERSION_FILE" | cut -d'"' -f2)
+    if [[ -n "$VERSION" ]]; then
+      echo "dokku-dns plugin version: $VERSION"
+    else
+      echo "dokku-dns plugin version: unknown (version not found in plugin.toml)"
+    fi
+  else
+    echo "dokku-dns plugin version: unknown (plugin.toml not found)"
+  fi
+  
+  # Show AWS CLI version if installed
+  if command -v aws >/dev/null 2>&1; then
+    local AWS_VERSION=$(aws --version 2>&1 | head -1 | awk '{print $1}' | sed 's/^aws-cli\///')
+    echo "AWS CLI version: $AWS_VERSION"
+  else
+    echo "AWS CLI: not installed"
+  fi
+}
+
+service-version-cmd "$@"

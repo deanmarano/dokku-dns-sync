@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# Pre-commit hook for dokku-dns plugin
+# Runs linting and optionally Docker tests before allowing commits
+
+set -euo pipefail
+
+echo "🔍 Running pre-commit checks..."
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    
+    case "$level" in
+        "INFO")
+            echo -e "${BLUE}[INFO]${NC} $message"
+            ;;
+        "SUCCESS")
+            echo -e "${GREEN}[SUCCESS]${NC} $message"
+            ;;
+        "WARNING")
+            echo -e "${YELLOW}[WARNING]${NC} $message"
+            ;;
+        "ERROR")
+            echo -e "${RED}[ERROR]${NC} $message"
+            ;;
+    esac
+}
+
+# Function to run linting
+run_lint() {
+    log "INFO" "Running shellcheck linting..."
+    if make lint 2>/dev/null; then
+        log "SUCCESS" "Linting passed"
+        return 0
+    else
+        log "ERROR" "Linting failed"
+        return 1
+    fi
+}
+
+# Function to run Docker unit tests (fast)
+run_docker_unit_tests() {
+    log "INFO" "Running Docker unit tests..."
+    if make docker-test 2>/dev/null; then
+        log "SUCCESS" "Docker unit tests passed"
+        return 0
+    else
+        log "ERROR" "Docker unit tests failed"
+        return 1
+    fi
+}
+
+# Function to run Docker integration tests (slow)
+run_docker_integration_tests() {
+    log "INFO" "Running Docker integration tests..."
+    if ./test-docker.sh --build 2>/dev/null; then
+        log "SUCCESS" "Docker integration tests passed"
+        return 0
+    else
+        log "ERROR" "Docker integration tests failed"
+        return 1
+    fi
+}
+
+# Check if we should skip tests (set SKIP_TESTS=1 to skip)
+if [[ "${SKIP_TESTS:-}" == "1" ]]; then
+    log "WARNING" "Skipping tests (SKIP_TESTS=1)"
+    exit 0
+fi
+
+# Check if this is a documentation-only change
+if git diff --cached --name-only | grep -qv -E '\.(md|txt|rst)$'; then
+    CODE_CHANGES=true
+else
+    CODE_CHANGES=false
+fi
+
+# Always run linting for code changes
+if [[ "$CODE_CHANGES" == "true" ]]; then
+    if ! run_lint; then
+        log "ERROR" "Pre-commit failed due to linting errors"
+        echo ""
+        echo "To fix linting issues, run: make lint"
+        echo "To skip this check temporarily: SKIP_TESTS=1 git commit"
+        exit 1
+    fi
+else
+    log "INFO" "Documentation-only change detected, skipping linting"
+fi
+
+# Check if Docker is available and user wants Docker tests
+if command -v docker >/dev/null 2>&1 && [[ "$CODE_CHANGES" == "true" ]]; then
+    # Default to unit tests (fast), allow integration tests with RUN_INTEGRATION_TESTS=1
+    if [[ "${RUN_INTEGRATION_TESTS:-}" == "1" ]]; then
+        log "INFO" "Running Docker integration tests (RUN_INTEGRATION_TESTS=1)..."
+        if ! run_docker_integration_tests; then
+            log "ERROR" "Pre-commit failed due to integration test failures"
+            echo ""
+            echo "To skip integration tests: unset RUN_INTEGRATION_TESTS"
+            echo "To skip all tests: SKIP_TESTS=1 git commit"
+            exit 1
+        fi
+    elif [[ "${RUN_DOCKER_TESTS:-1}" == "1" ]]; then
+        log "INFO" "Running Docker unit tests..."
+        if ! run_docker_unit_tests; then
+            log "ERROR" "Pre-commit failed due to unit test failures"
+            echo ""
+            echo "To skip Docker tests: RUN_DOCKER_TESTS=0 git commit"
+            echo "To skip all tests: SKIP_TESTS=1 git commit"
+            exit 1
+        fi
+    fi
+elif [[ "$CODE_CHANGES" == "true" ]]; then
+    log "WARNING" "Docker not available, skipping Docker tests"
+fi
+
+log "SUCCESS" "All pre-commit checks passed!"
+echo ""
+echo "💡 Tips:"
+echo "   • Unit tests run by default (fast)"  
+echo "   • For integration tests: RUN_INTEGRATION_TESTS=1 git commit"
+echo "   • To skip Docker tests: RUN_DOCKER_TESTS=0 git commit"
+echo "   • To skip all tests: SKIP_TESTS=1 git commit"
+echo "   • Manual testing:"
+echo "     - make lint                    # Linting only"
+echo "     - make docker-test            # Unit tests (fast)"
+echo "     - ./test-docker.sh --build    # Integration tests (slow)"

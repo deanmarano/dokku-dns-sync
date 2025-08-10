@@ -1,69 +1,117 @@
 #!/usr/bin/env bash
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common-functions"
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
 
-plugin-install() {
-  pull-docker-image() {
-    declare IMAGE="$1"
-    if [[ "$PLUGIN_DISABLE_PULL" == "true" ]]; then
-      echo " !     ${PLUGIN_DISABLE_PULL_VARIABLE} environment variable detected. Not running pull command." 1>&2
-      echo " !        docker image pull ${IMAGE}" 1>&2
-      return
-    fi
-    if [[ "$("$DOCKER_BIN" image ls -q "${IMAGE}" 2>/dev/null)" == "" ]]; then
-      "$DOCKER_BIN" image pull "${IMAGE}"
-    fi
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define property functions if not available
+if ! declare -f fn-plugin-property-setup >/dev/null 2>&1; then
+  fn-plugin-property-setup() {
+    local PLUGIN_PREFIX="$1"
+    # Simple property setup - create directories
+    mkdir -p "$PLUGIN_DATA_ROOT" 2>/dev/null || true
+    return 0
   }
+fi
 
-  fn-plugin-property-setup "$PLUGIN_COMMAND_PREFIX"
-  pull-docker-image "${PLUGIN_IMAGE}:${PLUGIN_IMAGE_VERSION}"
-  pull-docker-image "$PLUGIN_BUSYBOX_IMAGE"
-  pull-docker-image "$PLUGIN_AMBASSADOR_IMAGE"
-  pull-docker-image "$PLUGIN_S3BACKUP_IMAGE"
-  pull-docker-image "$PLUGIN_WAIT_IMAGE"
-
-  mkdir -p "$PLUGIN_DATA_ROOT" || echo "Failed to create $PLUGIN_SERVICE data directory"
-  chown "${DOKKU_SYSTEM_USER}:${DOKKU_SYSTEM_GROUP}" "$PLUGIN_DATA_ROOT"
-
-  mkdir -p "$PLUGIN_CONFIG_ROOT" || echo "Failed to create $PLUGIN_SERVICE config directory"
-  chown "${DOKKU_SYSTEM_USER}:${DOKKU_SYSTEM_GROUP}" "$PLUGIN_CONFIG_ROOT"
-
-  rm -f "/etc/sudoers.d/dokku-${PLUGIN_COMMAND_PREFIX}*"
-  _SUDOERS_FILE="/etc/sudoers.d/dokku-${PLUGIN_COMMAND_PREFIX}"
-
-  touch "$_SUDOERS_FILE"
-  cat >"$_SUDOERS_FILE" <<EOL
-%dokku ALL=(ALL) NOPASSWD:/bin/rm -f /etc/cron.d/dokku-${PLUGIN_COMMAND_PREFIX}-*
-%dokku ALL=(ALL) NOPASSWD:/bin/chown root\:root /etc/cron.d/dokku-${PLUGIN_COMMAND_PREFIX}-*
-%dokku ALL=(ALL) NOPASSWD:/bin/chmod 644 /etc/cron.d/dokku-${PLUGIN_COMMAND_PREFIX}-*
-%dokku ALL=(ALL) NOPASSWD:/bin/mv ${PLUGIN_DATA_ROOT}/.TMP_CRON_FILE /etc/cron.d/dokku-${PLUGIN_COMMAND_PREFIX}-*
-%dokku ALL=(ALL) NOPASSWD:/bin/chown 8983 $PLUGIN_DATA_ROOT/*
-%dokku ALL=(ALL) NOPASSWD:/bin/chgrp 8983 $PLUGIN_DATA_ROOT/*
-EOL
-
-  chmod 0440 "$_SUDOERS_FILE"
-
-  for SERVICE in $(fn-services-list false); do
-    local SERVICE_ROOT="$PLUGIN_DATA_ROOT/$SERVICE"
-
-    if [[ ! -f "$SERVICE_ROOT/IMAGE" ]] || [[ ! -f "$SERVICE_ROOT/IMAGE_VERSION" ]]; then
-      local image="$(service_version "$SERVICE")"
-      if [[ "$image" == *":"* ]]; then
-        echo "${image%:*}" >"$SERVICE_ROOT/IMAGE"
-        echo "${image##*:}" >"$SERVICE_ROOT/IMAGE_VERSION"
+detect_and_configure_provider() {
+  local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
+  local DETECTED_PROVIDERS=()
+  local CONFIGURED_PROVIDER=""
+  
+  # Ensure the data directory exists
+  mkdir -p "$PLUGIN_DATA_ROOT" 2>/dev/null || true
+  
+  # Check for AWS CLI
+  if command -v aws >/dev/null 2>&1; then
+    DETECTED_PROVIDERS+=("aws")
+    
+    if aws sts get-caller-identity >/dev/null 2>&1; then
+      # Test Route53 access
+      if aws route53 list-hosted-zones >/dev/null 2>&1; then
+        local ZONE_COUNT=$(aws route53 list-hosted-zones --query 'length(HostedZones)' --output text 2>/dev/null || echo "0")
+        echo "       ✓ AWS CLI authenticated with Route53 access ($ZONE_COUNT hosted zones)"
+        CONFIGURED_PROVIDER="aws"
+      else
+        echo "       ⚠ AWS CLI authenticated but Route53 access limited (check permissions)"
       fi
+    else
+      echo "       ⚠ AWS CLI installed but not configured (run: aws configure)"
     fi
+  else
+    echo "       - AWS CLI not installed"
+  fi
+  
+  # Check for Cloudflare CLI (flarectl)
+  if command -v flarectl >/dev/null 2>&1; then
+    echo "       ✓ Cloudflare CLI (flarectl) detected"
+    echo "       → Cloudflare support available (requires API token configuration)"
+    DETECTED_PROVIDERS+=("cloudflare")
+  else
+    echo "       - Cloudflare CLI not installed"
+  fi
+  
+  # Set default provider based on detection
+  if [[ -n "$CONFIGURED_PROVIDER" ]]; then
+    echo "       → Setting $CONFIGURED_PROVIDER as default DNS provider (fully configured)"
+    echo "$CONFIGURED_PROVIDER" > "$PROVIDER_FILE" 2>/dev/null || true
+    return 0
+  elif [[ ${#DETECTED_PROVIDERS[@]} -eq 1 ]]; then
+    echo "       → Setting ${DETECTED_PROVIDERS[0]} as default DNS provider"
+    echo "${DETECTED_PROVIDERS[0]}" > "$PROVIDER_FILE" 2>/dev/null || true
+    return 0  # Configuration is complete, provider just needs credentials
+  elif [[ ${#DETECTED_PROVIDERS[@]} -gt 1 ]]; then
+    echo "       → Multiple providers detected: ${DETECTED_PROVIDERS[*]}"
+    echo "       → Setting aws as default (use dokku $PLUGIN_COMMAND_PREFIX:configure to change)"
+    echo "aws" > "$PROVIDER_FILE" 2>/dev/null || true
+    return 0
+  else
+    echo "       → No DNS provider CLI tools detected"
+    echo "       → Setting aws as default provider"
+    echo "aws" > "$PROVIDER_FILE" 2>/dev/null || true
+    return 0
+  fi
+}
 
-    chown "${DOKKU_SYSTEM_USER}:${DOKKU_SYSTEM_GROUP}" "$SERVICE_ROOT/IMAGE" "$SERVICE_ROOT/IMAGE_VERSION"
+plugin-install() {
+  echo "-----> Installing $PLUGIN_SERVICE plugin"
+  
+  # Set up plugin properties
+  fn-plugin-property-setup "$PLUGIN_COMMAND_PREFIX"
 
-    if [[ -f "$SERVICE_ROOT/${PLUGIN_VARIABLE}_CONFIG_OPTIONS" ]]; then
-      mv "$SERVICE_ROOT/${PLUGIN_VARIABLE}_CONFIG_OPTIONS" "$SERVICE_ROOT/CONFIG_OPTIONS"
-      chown "${DOKKU_SYSTEM_USER}:${DOKKU_SYSTEM_GROUP}" "$SERVICE_ROOT/CONFIG_OPTIONS"
-    fi
-  done
+  # Create service data directory
+  mkdir -p "$PLUGIN_DATA_ROOT" || echo "Failed to create $PLUGIN_SERVICE data directory"
+  chown "${DOKKU_SYSTEM_USER:-dokku}:${DOKKU_SYSTEM_GROUP:-dokku}" "$PLUGIN_DATA_ROOT" 2>/dev/null || true
+
+  # Create service config directory if defined
+  if [[ -n "$PLUGIN_CONFIG_ROOT" ]]; then
+    mkdir -p "$PLUGIN_CONFIG_ROOT" || echo "Failed to create $PLUGIN_SERVICE config directory"
+    chown "${DOKKU_SYSTEM_USER:-dokku}:${DOKKU_SYSTEM_GROUP:-dokku}" "$PLUGIN_CONFIG_ROOT" 2>/dev/null || true
+  fi
+
+  # Auto-detect and configure DNS provider
+  echo "-----> Auto-detecting DNS provider capabilities..."
+  local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
+  if detect_and_configure_provider 2>&1; then
+    echo "-----> $PLUGIN_SERVICE plugin installed and configured successfully"
+  else
+    echo "-----> $PLUGIN_SERVICE plugin installed successfully"
+  fi
+  
+  echo ""
+  echo "Next steps:"
+  echo "  1. Configure DNS provider:     dokku $PLUGIN_COMMAND_PREFIX:configure [aws|cloudflare]"
+  echo "  2. Set up credentials:         dokku $PLUGIN_COMMAND_PREFIX:verify"
+  echo "  3. Add app domains:            dokku $PLUGIN_COMMAND_PREFIX:add <app>"
+  echo "  4. Sync DNS records:           dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+  echo ""
+  
+  # Show the help output directly
+  dokku "$PLUGIN_COMMAND_PREFIX:help" 2>/dev/null || echo "Run 'dokku $PLUGIN_COMMAND_PREFIX:help' to see all available commands"
 }
 
 plugin-install "$@"

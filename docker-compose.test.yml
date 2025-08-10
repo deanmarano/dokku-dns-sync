@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    privileged: true  # Needed for Docker-in-Docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for Dokku
+    environment:
+      - DOKKU_TRACE=1  # Enable debug output if needed
+    command: /run-tests.sh

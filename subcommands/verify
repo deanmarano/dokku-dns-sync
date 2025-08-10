@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f dokku_log_info1 >/dev/null 2>&1; then
+  dokku_log_info1() { echo "-----> $*"; }
+fi
+
+if ! declare -f dokku_log_info2 >/dev/null 2>&1; then
+  dokku_log_info2() { echo "=====> $*"; }
+fi
+
+if ! declare -f dokku_log_warn >/dev/null 2>&1; then
+  dokku_log_warn() { echo " !     $*"; }
+fi
+
+if ! declare -f dokku_log_fail >/dev/null 2>&1; then
+  dokku_log_fail() { echo " !     $*" >&2; exit 1; }
+fi
+
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-verify-cmd() {
+  #E verify DNS provider setup and connectivity, discover existing DNS records
+  #E dokku $PLUGIN_COMMAND_PREFIX:verify
+  #E for AWS: checks if AWS CLI is configured, tests Route53 access, shows existing DNS records for Dokku domains
+  #E for Cloudflare: prompts for CLOUDFLARE_API_TOKEN if not set, then validates access
+  declare desc="verify DNS provider setup and connectivity"
+  local cmd="$PLUGIN_COMMAND_PREFIX:verify" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+  
+  local GLOBAL_CONFIG_ROOT="$PLUGIN_DATA_ROOT"
+  local PROVIDER_FILE="$GLOBAL_CONFIG_ROOT/PROVIDER"
+  
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "No provider configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  fi
+  
+  local PROVIDER
+  PROVIDER="$(cat "$PROVIDER_FILE")"
+  
+  if [[ -z "$PROVIDER" ]]; then
+    dokku_log_fail "Provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure <provider>"
+  fi
+  
+  # Load the provider functions
+  local PROVIDER_SCRIPT="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/providers/$PROVIDER"
+  if [[ ! -f "$PROVIDER_SCRIPT" ]]; then
+    dokku_log_fail "Provider '$PROVIDER' not found. Available providers: aws, cloudflare"
+  fi
+  source "$PROVIDER_SCRIPT"
+  
+  local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
+  mkdir -p "$CREDENTIALS_DIR"
+  chmod 700 "$CREDENTIALS_DIR"
+  
+  case "$PROVIDER" in
+    aws)
+      dokku_log_info2 "Verifying AWS Route53 access"
+      
+      # Check if AWS CLI is installed
+      if ! command -v aws >/dev/null 2>&1; then
+        dokku_log_fail "AWS CLI is not installed. Please install it first:
+  
+  # Ubuntu/Debian:
+  sudo apt update && sudo apt install awscli
+  
+  # macOS:
+  brew install awscli
+  
+  # Or install via pip:
+  pip install awscli"
+      fi
+      
+      # Check if AWS CLI is configured  
+      dokku_log_info1 "Checking AWS CLI configuration..."
+      
+      # Helper function to run AWS commands with correct user context
+      run_aws_command() {
+        if aws "$@" >/dev/null 2>&1; then
+          aws "$@" 2>/dev/null
+        elif [[ -n "${SUDO_USER:-}" ]] && sudo -u "$SUDO_USER" aws "$@" >/dev/null 2>&1; then
+          sudo -u "$SUDO_USER" aws "$@" 2>/dev/null
+        elif [[ -f "/home/dokku/.aws/credentials" ]] && sudo -u dokku aws "$@" >/dev/null 2>&1; then
+          sudo -u dokku aws "$@" 2>/dev/null
+        else
+          return 1
+        fi
+      }
+      
+      # Try multiple AWS credential contexts for compatibility
+      local AWS_CHECK_SUCCESS=false
+      
+      if run_aws_command sts get-caller-identity >/dev/null 2>&1; then
+        AWS_CHECK_SUCCESS=true
+        # Determine which context is working for user feedback
+        if aws sts get-caller-identity >/dev/null 2>&1; then
+          true  # Current context works, no message needed
+        elif [[ -n "${SUDO_USER:-}" ]]; then
+          dokku_log_info1 "Using AWS credentials from user: $SUDO_USER"
+        else
+          dokku_log_info1 "Using AWS credentials from dokku user"
+        fi
+      fi
+      
+      if [[ "$AWS_CHECK_SUCCESS" != "true" ]]; then
+        dokku_log_fail "AWS CLI is not configured or credentials are invalid.
+  
+Please configure AWS CLI first using one of these methods:
+
+1. Run: aws configure
+   Then enter your AWS Access Key ID, Secret Key, and default region.
+
+2. Use environment variables:
+   export AWS_ACCESS_KEY_ID=your_key_id
+   export AWS_SECRET_ACCESS_KEY=your_secret_key
+   export AWS_DEFAULT_REGION=us-east-1
+
+3. Use IAM roles (if running on EC2)
+
+4. Use AWS credential files (~/.aws/credentials)
+
+For more info: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html"
+      fi
+      
+      # Get AWS identity information using the working credential context
+      local AWS_IDENTITY AWS_USER_ID AWS_ACCOUNT AWS_REGION
+      
+      AWS_IDENTITY=$(run_aws_command sts get-caller-identity)
+      AWS_REGION=$(run_aws_command configure get region 2>/dev/null || echo "not-set")
+      
+      AWS_USER_ID=$(echo "$AWS_IDENTITY" | jq -r '.UserId // .Arn' 2>/dev/null || echo "unknown")
+      AWS_ACCOUNT=$(echo "$AWS_IDENTITY" | jq -r '.Account' 2>/dev/null || echo "unknown")
+      
+      dokku_log_info2 "✓ AWS CLI configured successfully"
+      dokku_log_info1 "AWS Account: $AWS_ACCOUNT"
+      dokku_log_info1 "AWS User/Role: $AWS_USER_ID"
+      dokku_log_info1 "AWS Region: $AWS_REGION"
+      
+      # Test Route53 permissions
+      dokku_log_info1 "Testing Route53 permissions..."
+      if run_aws_command route53 list-hosted-zones >/dev/null 2>&1; then
+        dokku_log_info2 "✓ Route53 access confirmed"
+        
+        # Show available hosted zones
+        dokku_log_info1 "Available hosted zones:"
+        run_aws_command route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table 2>/dev/null || {
+          dokku_log_info1 "No hosted zones found or unable to format output"
+          run_aws_command route53 list-hosted-zones --query 'HostedZones[].Name' --output text 2>/dev/null || true
+        }
+        
+        echo
+        # Show existing DNS records
+        dokku_log_info1 "Existing DNS records:"
+        dns_provider_aws_discover_existing_domains
+      else
+        dokku_log_fail "✗ Route53 access failed. Please ensure your AWS credentials have the following permissions:
+  
+  - route53:ListHostedZones
+  - route53:ListResourceRecordSets  
+  - route53:ChangeResourceRecordSets
+  
+You can attach the AWS managed policy 'AmazonRoute53FullAccess' or create a custom policy."
+      fi
+      ;;
+      
+    cloudflare)
+      dokku_log_info2 "Configuring Cloudflare credentials"
+      
+      echo -n "Cloudflare API Token: "
+      read -rs CLOUDFLARE_API_TOKEN
+      echo
+      [[ -z "$CLOUDFLARE_API_TOKEN" ]] && dokku_log_fail "Cloudflare API Token is required"
+      
+      echo "$CLOUDFLARE_API_TOKEN" > "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN"
+      chmod 600 "$CREDENTIALS_DIR/CLOUDFLARE_API_TOKEN"
+      
+      # Validate credentials by testing Cloudflare API access
+      dokku_log_info1 "Validating Cloudflare credentials..."
+      if curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/user/tokens/verify" | grep -q '"success":true'; then
+        dokku_log_info2 "✓ Cloudflare credentials validated successfully"
+        
+        # Show available zones
+        dokku_log_info1 "Available zones:"
+        curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones" | \
+          jq -r '.result[] | "\(.name) (\(.id))"' 2>/dev/null || dokku_log_warn "Could not list zones (jq not available)"
+      else
+        dokku_log_fail "✗ Cloudflare credential validation failed. Please check your API token."
+      fi
+      ;;
+      
+    *)
+      dokku_log_fail "Unknown provider: $PROVIDER"
+      ;;
+  esac
+  
+  dokku_log_info2 "DNS provider verification and discovery completed successfully"
+  dokku_log_info1 "Ready to use! Next steps:"
+  dokku_log_info1 "  1. Add domains to an app: dokku $PLUGIN_COMMAND_PREFIX:add <app>"
+  dokku_log_info1 "  2. Sync DNS records: dokku $PLUGIN_COMMAND_PREFIX:sync <app>"
+  dokku_log_info1 "  3. Check DNS status: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
+}
+
+service-verify-cmd "$@"

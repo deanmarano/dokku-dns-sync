@@ -2,8 +2,36 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common-functions"
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f dokku_log_info1 >/dev/null 2>&1; then
+  dokku_log_info1() { echo "-----> $*"; }
+fi
+
+if ! declare -f dokku_log_fail >/dev/null 2>&1; then
+  dokku_log_fail() { echo " !     $*" >&2; exit 1; }
+fi
 export SUBCOMMAND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/subcommands"
+
+is_implemented_command() {
+  declare desc="return true if the subcommand is implemented"
+  local SUBCOMMAND="$1"
+  
+  # All our subcommands are implemented
+  case "$SUBCOMMAND" in
+    add|configure|help|remove|report|sync|verify|version)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 fn-help() {
   declare CMD="$1"
@@ -44,23 +72,17 @@ fn-help-all() {
 
     echo -e "${BOLD}usage${NORMAL}: dokku ${PLUGIN_COMMAND_PREFIX}[:COMMAND]"
     echo ''
-    echo -e "${BOLD}List your $PLUGIN_COMMAND_PREFIX services.${NORMAL}"
-    echo ''
-    echo -e "${BLUE}Example:${NORMAL}"
-    echo ''
-    echo "    \$ dokku $PLUGIN_COMMAND_PREFIX:list"
-    echo ''
-    fn-help-list-example | column -c5 -t -s,
+    echo -e "${BOLD}Manage DNS for your apps with cloud providers.${NORMAL}"
     echo ''
     echo -e "dokku ${BOLD}${PLUGIN_COMMAND_PREFIX}${NORMAL} commands: (get help with ${CYAN}dokku ${PLUGIN_COMMAND_PREFIX}:help SUBCOMMAND${NORMAL})"
     echo ''
-    fn-help-contents | sort | column -c2 -t -s,
+    fn-help-contents | sort
     echo ''
   elif [[ $(ps -o command= $PPID) == *"--all"* ]]; then
     fn-help-contents
   else
     cat <<help_desc
-    $PLUGIN_COMMAND_PREFIX, Plugin for managing $PLUGIN_SERVICE services
+    $PLUGIN_COMMAND_PREFIX, Plugin for DNS with cloud providers
 help_desc
   fi
 
@@ -68,6 +90,11 @@ help_desc
 }
 
 fn-help-contents() {
+  # Add special entry for help command
+  local LIGHT_GRAY="$(fn-help-fancy-color "\033[2;37m")"
+  local NORMAL="$(fn-help-fancy-color "\033[m")"
+  echo -e "$(printf "    %s%-20s " "dns" ":help [<subcommand>]")${LIGHT_GRAY}show help for DNS commands or specific subcommand${NORMAL}"
+  
   pushd "$SUBCOMMAND_ROOT" >/dev/null 2>&1
   for cmd in *; do
     fn-help-contents-subcommand "$cmd" || true
@@ -102,9 +129,9 @@ fn-help-contents-subcommand() {
   NORMAL="$(fn-help-fancy-color "\033[m")"
   LIGHT_GRAY="$(fn-help-fancy-color "\033[2;37m")"
   LIGHT_RED="$(fn-help-fancy-color "\033[1;31m")"
-  CMD_OUTPUT="$(echo -e "    ${PLUGIN_COMMAND_PREFIX}${cmd_line}, ${LIGHT_GRAY}${desc}${NORMAL}")"
+  CMD_OUTPUT="$(printf "    %s%-20s " "${PLUGIN_COMMAND_PREFIX}" "${cmd_line}")${LIGHT_GRAY}${desc}${NORMAL}"
   if [[ "$FULL_OUTPUT" != "true" ]]; then
-    echo "$CMD_OUTPUT"
+    echo -e "$CMD_OUTPUT"
     return 0
   fi
 
@@ -160,58 +187,78 @@ fn-help-fancy-color() {
   echo "$@"
 }
 
-fn-help-list-example() {
-  # shellcheck disable=SC2034
-  declare desc="return $PLUGIN_COMMAND_PREFIX plugin help content"
-  cat <<help_list
-      $PLUGIN_SERVICE services
-      service-name
-help_list
-}
 
 fn-help-subcommand-args() {
   declare FUNC_FILE="$1" FULL_OUTPUT="$2"
-  local argline arglist args argpos BLUE NORMAL
+  local args argpos BLUE NORMAL arg_name arg_desc
 
   if [[ "$FULL_OUTPUT" == "true" ]]; then
     BLUE="$(fn-help-fancy-color "\033[0;34m")"
     NORMAL="$(fn-help-fancy-color "\033[m")"
   fi
-  argline=$(grep declare "$FUNC_FILE" | grep -v "declare desc" | head -1 || true)
-  arglist=($(echo -e "${argline// /"\n"}" | awk -F= '/=/{print ""$1""}'))
+  
   args=""
   argpos=0
-  for arg in "${arglist[@]}"; do
+  
+  # Parse #A lines to get argument information
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
     argpos=$((argpos + 1))
     if [[ "$FULL_OUTPUT" != "true" ]] && [[ "$argpos" == 4 ]]; then
       args+="..."
       break
     fi
-
-    if [[ "$arg" == *_FLAG ]]; then
-      arg="${arg/_FLAG/}"
-      if [[ $arg == "INFO" ]]; then
-        arg="SINGLE_INFO_FLAG"
-        args+=" ${BLUE}[--${arg//_/-}]${NORMAL}"
-      else
-        args+=" ${BLUE}[-${arg:0:1}|--${arg//_/-}]${NORMAL}"
-      fi
-    elif [[ "$arg" == *_FLAGS_LIST ]]; then
-      arg=${arg%_*}
-      args+=" [--${arg//_/-}...]"
-    elif [[ "$arg" == *_LIST ]]; then
-      arg=${arg%_*}
-      args+=" <${arg//_/-}...>"
-    elif [[ "$arg" == *_OPTIONAL ]]; then
-      argName="${arg/_OPTIONAL/}"
-      args+=" [<${argName//_/-}>]"
+    
+    # Extract argument name (first word, remove comma) and description (rest)
+    arg_name=$(echo "$line" | awk '{print $1}' | sed 's/,$//' | tr '[:upper:]' '[:lower:]')
+    arg_desc=$(echo "$line" | cut -d' ' -f2-)
+    
+    # Check if argument is optional based on description
+    if [[ "$arg_desc" == *"optional"* ]] || [[ "$arg_desc" == *"omitted"* ]]; then
+      args+=" [<${arg_name}>]"
     else
-      args+=" <${arg//_/-}>"
+      args+=" <${arg_name}>"
     fi
-  done
+  done < <(grep "^[[:space:]]*#A " "$FUNC_FILE" | sed 's/^[[:space:]]*#A //')
+  
+  # If no #A lines found, fall back to old method
+  if [[ -z "$args" ]]; then
+    argline=$(grep declare "$FUNC_FILE" | grep -v "declare desc" | head -1 || true)
+    arglist=($(echo -e "${argline// /"\n"}" | awk -F= '/=/{print ""$1""}'))
+    argpos=0
+    for arg in "${arglist[@]}"; do
+      argpos=$((argpos + 1))
+      if [[ "$FULL_OUTPUT" != "true" ]] && [[ "$argpos" == 4 ]]; then
+        args+="..."
+        break
+      fi
+
+      if [[ "$arg" == *_FLAG ]]; then
+        arg="${arg/_FLAG/}"
+        if [[ $arg == "INFO" ]]; then
+          arg="SINGLE_INFO_FLAG"
+          args+=" ${BLUE}[--${arg//_/-}]${NORMAL}"
+        else
+          args+=" ${BLUE}[-${arg:0:1}|--${arg//_/-}]${NORMAL}"
+        fi
+      elif [[ "$arg" == *_FLAGS_LIST ]]; then
+        arg=${arg%_*}
+        args+=" [--${arg//_/-}...]"
+      elif [[ "$arg" == *_LIST ]]; then
+        arg=${arg%_*}
+        args+=" <${arg//_/-}...>"
+      elif [[ "$arg" == *_OPTIONAL ]]; then
+        argName="${arg/_OPTIONAL/}"
+        args+=" [<${argName//_/-}>]"
+      else
+        args+=" <${arg//_/-}>"
+      fi
+    done
+  fi
+  
   args=$(echo "$args" | tr "\n" " ")
   # shellcheck disable=SC2001
-  echo "${args,,}" | sed -e 's/^[[:space:]]*//'
+  echo "$args" | sed -e 's/^[[:space:]]*//'
 }
 
 fn-help-subcommand-example() {
