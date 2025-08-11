@@ -36,7 +36,8 @@
       "Bash(true)",
       "Bash(git commit:*)",
       "Bash(scripts/test-docker.sh:*)",
-      "Bash(tests/integration/docker-orchestrator.sh:*)"
+      "Bash(tests/integration/docker-orchestrator.sh:*)",
+      "Bash(docker rmi:*)"
     ],
     "deny": []
   }

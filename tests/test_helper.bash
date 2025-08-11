@@ -33,6 +33,7 @@ export PATH="$TEST_BIN_DIR:$PLUGIN_ROOT/subcommands:$PATH"
 
 # Ensure our test dokku takes precedence over system dokku
 if [[ -f "$TEST_BIN_DIR/dokku" ]]; then
+  # shellcheck disable=SC2139
   alias dokku="$TEST_BIN_DIR/dokku"
   # Also create a function override that works in subshells (for BATS)
   dokku() {
