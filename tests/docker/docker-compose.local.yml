@@ -40,7 +40,7 @@ services:
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
     networks:
       - dokku-net
-    command: /wait-and-test.sh
+    command: /tests/wait-and-test.sh
 
 volumes:
   dokku_data:

@@ -46,26 +46,26 @@ run_lint() {
     fi
 }
 
-# Function to run Docker unit tests (fast)
-run_docker_unit_tests() {
-    log "INFO" "Running Docker unit tests..."
-    if make docker-test 2>/dev/null; then
-        log "SUCCESS" "Docker unit tests passed"
-        return 0
-    else
-        log "ERROR" "Docker unit tests failed"
-        return 1
-    fi
-}
-
-# Function to run Docker integration tests (slow)
-run_docker_integration_tests() {
+# Function to run Docker integration tests (fast)
+run_docker_integration_tests_fast() {
     log "INFO" "Running Docker integration tests..."
-    if ./test-docker.sh --build 2>/dev/null; then
+    if make docker-test 2>/dev/null; then
         log "SUCCESS" "Docker integration tests passed"
         return 0
     else
         log "ERROR" "Docker integration tests failed"
+        return 1
+    fi
+}
+
+# Function to run full Docker integration tests (slow)
+run_docker_integration_tests_full() {
+    log "INFO" "Running full Docker integration tests..."
+    if ./test-docker.sh --build 2>/dev/null; then
+        log "SUCCESS" "Full Docker integration tests passed"
+        return 0
+    else
+        log "ERROR" "Full Docker integration tests failed"
         return 1
     fi
 }
@@ -98,20 +98,20 @@ fi
 
 # Check if Docker is available and user wants Docker tests
 if command -v docker >/dev/null 2>&1 && [[ "$CODE_CHANGES" == "true" ]]; then
-    # Default to unit tests (fast), allow integration tests with RUN_INTEGRATION_TESTS=1
-    if [[ "${RUN_INTEGRATION_TESTS:-}" == "1" ]]; then
-        log "INFO" "Running Docker integration tests (RUN_INTEGRATION_TESTS=1)..."
-        if ! run_docker_integration_tests; then
-            log "ERROR" "Pre-commit failed due to integration test failures"
+    # Default to fast integration tests, allow full integration tests with RUN_FULL_TESTS=1
+    if [[ "${RUN_FULL_TESTS:-}" == "1" ]]; then
+        log "INFO" "Running full Docker integration tests (RUN_FULL_TESTS=1)..."
+        if ! run_docker_integration_tests_full; then
+            log "ERROR" "Pre-commit failed due to full integration test failures"
             echo ""
-            echo "To skip integration tests: unset RUN_INTEGRATION_TESTS"
+            echo "To skip full tests: unset RUN_FULL_TESTS"
             echo "To skip all tests: SKIP_TESTS=1 git commit"
             exit 1
         fi
     elif [[ "${RUN_DOCKER_TESTS:-1}" == "1" ]]; then
-        log "INFO" "Running Docker unit tests..."
-        if ! run_docker_unit_tests; then
-            log "ERROR" "Pre-commit failed due to unit test failures"
+        log "INFO" "Running Docker integration tests..."
+        if ! run_docker_integration_tests_fast; then
+            log "ERROR" "Pre-commit failed due to integration test failures"
             echo ""
             echo "To skip Docker tests: RUN_DOCKER_TESTS=0 git commit"
             echo "To skip all tests: SKIP_TESTS=1 git commit"
@@ -125,11 +125,11 @@ fi
 log "SUCCESS" "All pre-commit checks passed!"
 echo ""
 echo "💡 Tips:"
-echo "   • Unit tests run by default (fast)"  
-echo "   • For integration tests: RUN_INTEGRATION_TESTS=1 git commit"
+echo "   • Fast integration tests run by default"  
+echo "   • For full integration tests: RUN_FULL_TESTS=1 git commit"
 echo "   • To skip Docker tests: RUN_DOCKER_TESTS=0 git commit"
 echo "   • To skip all tests: SKIP_TESTS=1 git commit"
 echo "   • Manual testing:"
 echo "     - make lint                    # Linting only"
-echo "     - make docker-test            # Unit tests (fast)"
-echo "     - ./test-docker.sh --build    # Integration tests (slow)"
+echo "     - make docker-test            # Integration tests (fast)"
+echo "     - ./test-docker.sh --build    # Full Docker integration tests"
