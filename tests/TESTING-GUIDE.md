@@ -135,10 +135,10 @@ test.example.com          ❌     Yes                 aws         example.com
 docker info
 
 # View logs
-docker-compose -f docker-compose.local.yml logs
+docker-compose -f docker-compose.yml logs
 
 # Force cleanup
-docker-compose -f docker-compose.local.yml down -v
+docker-compose -f docker-compose.yml down -v
 ```
 
 ### Plugin Problems

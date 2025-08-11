@@ -29,7 +29,8 @@ elif [[ "$1" == "dns:help" ]] || [[ "$1" == "dns" ]]; then
     exec "$PLUGIN_ROOT/commands" "$@"
 elif [[ "$1" =~ ^dns:[^:]+:help$ ]]; then
     # Handle subcommand help like dns:configure:help
-    SUBCOMMAND=$(echo "$1" | sed 's/^dns:\([^:]*\):help$/\1/')
+    SUBCOMMAND=${1#dns:}
+    SUBCOMMAND=${SUBCOMMAND%:help}
     exec "$PLUGIN_ROOT/commands" "dns:help" "$SUBCOMMAND"
 else
     # For non-DNS commands, provide basic mocks

@@ -20,6 +20,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/help-functions"
 # Allow help commands to work even without full configuration
 if [[ "$1" == "help" || "$1" == "$PLUGIN_COMMAND_PREFIX:help" ]]; then
   fn-help "$@"
+  # shellcheck disable=SC2317
   exit 0
 fi
 

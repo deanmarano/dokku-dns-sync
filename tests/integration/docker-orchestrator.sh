@@ -31,7 +31,7 @@ run_direct_tests() {
     DOKKU_CONTAINER="${DOKKU_CONTAINER:-dokku-local}"
     if ! docker exec "$DOKKU_CONTAINER" echo "Container accessible" >/dev/null 2>&1; then
         echo "❌ Dokku container not accessible: $DOKKU_CONTAINER"
-        echo "   Start containers first: docker-compose -f tests/docker/docker-compose.local.yml up -d"
+        echo "   Start containers first: docker-compose -f tests/docker/docker-compose.yml up -d"
         exit 1
     fi
     
@@ -150,7 +150,7 @@ run_direct_tests() {
 run_orchestrated_tests() {
     local build_flag="$1"
     local logs_flag="$2"
-    local compose_file="tests/docker/docker-compose.local.yml"
+    local compose_file="tests/docker/docker-compose.yml"
     
     echo "🚀 Starting Docker-based Dokku DNS plugin tests..."
     echo ""

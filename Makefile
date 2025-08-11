@@ -94,7 +94,7 @@ docker-test:
 
 docker-test-clean:
 	@echo "Cleaning up Docker test environment..."
-	docker-compose -f tests/docker/docker-compose.local.yml down --volumes --remove-orphans
+	docker-compose -f tests/docker/docker-compose.yml down --volumes --remove-orphans
 	docker rmi $$(docker images -q docker_test-runner) 2>/dev/null || true
 
 report: tmp/xunit-reader
