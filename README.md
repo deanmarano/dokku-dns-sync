@@ -1,6 +1,6 @@
-# dokku dns [![Build Status](https://img.shields.io/github/actions/workflow/status/dokku/dokku-dns/ci.yml?branch=main&style=flat-square "Build Status")](https://github.com/dokku/dokku-dns/actions/workflows/ci.yml?query=branch%3Amain) [![IRC Network](https://img.shields.io/badge/irc-libera-blue.svg?style=flat-square "IRC Libera")](https://webchat.libera.chat/?channels=dokku)
+# dokku dns [![Build Status](https://img.shields.io/github/actions/workflow/status/deanmarano/dokku-dns/ci.yml?branch=main&style=flat-square "Build Status")](https://github.com/deanmarano/dokku-dns/actions/workflows/ci.yml?query=branch%3Amain) [![IRC Network](https://img.shields.io/badge/irc-libera-blue.svg?style=flat-square "IRC Libera")](https://webchat.libera.chat/?channels=dokku)
 
-A dns plugin for dokku. Currently defaults to installing [busybox 1.37.0-uclibc](https://hub.docker.com/_/busybox/).
+A dns plugin for dokku. Manages DNS records with cloud providers like AWS Route53 and Cloudflare.
 
 ## Requirements
 
@@ -11,7 +11,7 @@ A dns plugin for dokku. Currently defaults to installing [busybox 1.37.0-uclibc]
 
 ```shell
 # on 0.19.x+
-sudo dokku plugin:install https://github.com/dokku/dokku-dns.git --name dns
+sudo dokku plugin:install https://github.com/deanmarano/dokku-dns.git --name dns
 ```
 
 ## Commands

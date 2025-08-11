@@ -61,13 +61,17 @@ def header(service):
     return " ".join(
         [
             f"# dokku {service}",
-            f'[![Build Status](https://img.shields.io/github/actions/workflow/status/dokku/dokku-{service}/ci.yml?branch=main&style=flat-square "Build Status")](https://github.com/dokku/dokku-{service}/actions/workflows/ci.yml?query=branch%3Amain)',
+            f'[![Build Status](https://img.shields.io/github/actions/workflow/status/deanmarano/dokku-{service}/ci.yml?branch=main&style=flat-square "Build Status")](https://github.com/deanmarano/dokku-{service}/actions/workflows/ci.yml?query=branch%3Amain)',
             f'[![IRC Network](https://img.shields.io/badge/irc-libera-blue.svg?style=flat-square "IRC Libera")](https://webchat.libera.chat/?channels=dokku)',
         ]
     )
 
 
 def description(service, full_image, version):
+    # Handle DNS plugin (no service container)
+    if service == "dns":
+        return f"A {service} plugin for dokku. Manages DNS records with cloud providers like AWS Route53 and Cloudflare."
+    
     base = "_"
     image = full_image
     if "/" in full_image:
@@ -110,7 +114,7 @@ def installation_section(service, dokku_version):
             "",
             "```shell",
             f"# on {dokku_version}",
-            f"sudo dokku plugin:install https://github.com/dokku/dokku-{service}.git --name {service}",
+            f"sudo dokku plugin:install https://github.com/deanmarano/dokku-{service}.git --name {service}",
             "```",
         ]
     )
@@ -617,12 +621,18 @@ def main():
     options = None
     unimplemented = []
 
-    with open("Dockerfile") as f:
-        for line in f.readlines():
-            if "FROM " in line:
-                image, version = line.split(" ")[1].split(":")
-                image = image.strip()
-                version = version.strip()
+    # Handle DNS plugin (no service container)
+    try:
+        with open("Dockerfile") as f:
+            for line in f.readlines():
+                if "FROM " in line:
+                    image, version = line.split(" ")[1].split(":")
+                    image = image.strip()
+                    version = version.strip()
+    except FileNotFoundError:
+        # DNS plugin doesn't need a service container
+        image = "N/A"
+        version = "N/A"
 
     with open("config") as f:
         for line in f.readlines():
