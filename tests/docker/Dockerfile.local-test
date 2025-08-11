@@ -33,7 +33,7 @@ WORKDIR /plugin
 
 # Copy wait and test script
 COPY tests/wait-and-test.sh /tests/wait-and-test.sh
-COPY test-docker.sh /test-docker.sh
+COPY scripts/test-docker.sh /test-docker.sh
 RUN mkdir -p /tests && chmod +x /tests/wait-and-test.sh /test-docker.sh
 
 # Default command

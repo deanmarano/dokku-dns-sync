@@ -21,10 +21,10 @@
       "Bash(docker exec:*)",
       "Bash(ls:*)",
       "WebFetch(domain:github.com)",
-      "Bash(./test-server.sh:*)",
+      "Bash(scripts/test-server.sh:*)",
       "Bash(gh run view:*)",
       "Bash(python3:*)",
-      "Bash(./test-docker.sh:*)",
+      "Bash(scripts/test-docker.sh:*)",
       "Bash(./test-bats.sh:*)",
       "Bash(git add:*)",
       "Bash(find:*)",
@@ -34,7 +34,7 @@
       "Bash(timeout:*)",
       "Bash(./debug-report.sh:*)",
       "Bash(./test-report-format.sh:*)",
-      "Bash(./wait-and-test.sh:*)",
+      "Bash(tests/wait-and-test.sh:*)",
       "Bash(./test-dev.sh test:*)",
       "Bash(./test-dev.sh:*)",
       "Bash(bats:*)",
@@ -45,7 +45,9 @@
       "Bash(docker system prune:*)",
       "Bash(docker container prune:*)",
       "Bash(true)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(scripts/test-docker.sh:*)",
+      "Bash(tests/integration/docker-orchestrator.sh:*)"
     ],
     "deny": []
   }

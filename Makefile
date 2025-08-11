@@ -69,7 +69,7 @@ unit-tests:
 	@mkdir -p tmp/test-results
 	@if command -v dokku >/dev/null 2>&1; then \
 		echo "Running integration tests against local Dokku..."; \
-		./test-integration.sh || echo "Integration tests completed with some failures"; \
+		scripts/test-integration.sh || echo "Integration tests completed with some failures"; \
 	else \
 		echo "No local Dokku found - integration tests skipped"; \
 		echo "This is normal for CI environments without Dokku installed"; \

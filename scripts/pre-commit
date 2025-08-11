@@ -61,7 +61,7 @@ run_docker_integration_tests_fast() {
 # Function to run full Docker integration tests (slow)
 run_docker_integration_tests_full() {
     log "INFO" "Running full Docker integration tests..."
-    if ./test-docker.sh --build 2>/dev/null; then
+    if scripts/test-docker.sh --build 2>/dev/null; then
         log "SUCCESS" "Full Docker integration tests passed"
         return 0
     else
@@ -132,4 +132,4 @@ echo "   • To skip all tests: SKIP_TESTS=1 git commit"
 echo "   • Manual testing:"
 echo "     - make lint                    # Linting only"
 echo "     - make docker-test            # Integration tests (fast)"
-echo "     - ./test-docker.sh --build    # Full Docker integration tests"
+echo "     - scripts/test-docker.sh --build    # Full Docker integration tests"
