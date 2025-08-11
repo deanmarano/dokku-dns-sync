@@ -80,7 +80,7 @@ EOF
     fi
     
     # Create test app for comprehensive testing
-    TEST_APP="nextcloud"
+    TEST_APP="my-test-app"
     echo "Setting up test app: $TEST_APP"
     if ! dokku apps:list 2>/dev/null | grep -q "$TEST_APP"; then
         dokku apps:create "$TEST_APP" 2>&1 || echo "Failed to create app, using existing"
