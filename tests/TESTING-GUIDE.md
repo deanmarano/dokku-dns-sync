@@ -9,24 +9,24 @@ The Dokku DNS plugin uses integration testing to validate functionality with rea
 ### Local Docker Testing (Recommended)
 ```bash
 # Run comprehensive tests in Docker
-./test-docker.sh
+scripts/test-docker.sh
 
 # With AWS credentials for full testing
-AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy ./test-docker.sh
+AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy scripts/test-docker.sh
 
 # Force rebuild and show logs
-./test-docker.sh --build --logs
+scripts/test-docker.sh --build --logs
 ```
 
 ### Remote Server Testing
 ```bash
 # Test against actual server with SSH
-./test-server.sh your-server.com root nextcloud
+scripts/test-server.sh your-server.com root nextcloud
 ```
 
 ## Test Methods
 
-### 1. Docker Testing (`./test-docker.sh`)
+### 1. Docker Testing (`scripts/test-docker.sh`)
 ✅ **Best for development** - Fast, isolated, consistent environment  
 ✅ **No remote server required** - 2-3 minutes execution time  
 ✅ **Complete test coverage** - All fixes and edge cases verified
@@ -39,7 +39,7 @@ AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy ./test-docker.sh
 - Hosted zone validation
 - Error handling and edge cases
 
-### 2. Remote Server Testing (`./test-server.sh`)
+### 2. Remote Server Testing (`scripts/test-server.sh`)
 ✅ **Best for final validation** - Real AWS Route53 integration  
 ✅ **Production-like environment** - Tests against actual hosted zones  
 
@@ -48,7 +48,7 @@ AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy ./test-docker.sh
 - AWS credentials for Route53 testing
 - Real domains with hosted zones
 
-### 3. Integration Testing (`./test-integration.sh`)
+### 3. Integration Testing (`scripts/test-integration.sh`)
 ✅ **Lightweight testing** - Core functionality without Docker overhead  
 ✅ **CI/CD friendly** - No external dependencies
 
@@ -67,7 +67,7 @@ echo "AWS_DEFAULT_REGION=us-east-1" >> .env
 ```bash
 export AWS_ACCESS_KEY_ID=AKIA...
 export AWS_SECRET_ACCESS_KEY=your_secret
-./test-docker.sh
+scripts/test-docker.sh
 ```
 
 ## Key Test Coverage
@@ -152,13 +152,13 @@ docker exec dokku-local aws sts get-caller-identity
 
 ## Test Selection Guide
 
-**Use Docker testing (`./test-docker.sh`) for:**
+**Use Docker testing (`scripts/test-docker.sh`) for:**
 - Daily development work
 - Regression testing
 - CI/CD pipelines
 - Quick validation of changes
 
-**Use remote server testing (`./test-server.sh`) for:**
+**Use remote server testing (`scripts/test-server.sh`) for:**
 - Final release validation
 - Real hosted zone testing
 - Production environment validation

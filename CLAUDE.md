@@ -12,9 +12,9 @@ The plugin is built as a shell-based Dokku service plugin that manages DNS confi
 
 ### Testing
 - `make lint` - Run shellcheck linting only
-- `./test-docker.sh` - Run comprehensive Docker-based tests (recommended)
+- `scripts/test-docker.sh` - Run comprehensive Docker-based tests (recommended)
 - `./test-bats.sh` - Run BATS unit tests in Docker container
-- `./test-server.sh` - Run tests against remote Dokku server (requires SSH setup)
+- `scripts/test-server.sh` - Run tests against remote Dokku server (requires SSH setup)
 - `make test` - Run lint + BATS tests (requires local Dokku installation)
 - `make unit-tests` - Run BATS tests only (requires local Dokku installation)
 

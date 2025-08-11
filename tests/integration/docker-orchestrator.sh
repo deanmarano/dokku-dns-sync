@@ -131,7 +131,7 @@ run_direct_tests() {
     
     log "INFO" "Copying and executing integration test script..."
     # Use the new comprehensive integration test script
-    local INTEGRATION_SCRIPT="$SCRIPT_DIR/../../test-integration.sh"
+    local INTEGRATION_SCRIPT="$SCRIPT_DIR/../../scripts/test-integration.sh"
     if [[ ! -f "$INTEGRATION_SCRIPT" ]]; then
         log "ERROR" "Integration test script not found: $INTEGRATION_SCRIPT"
         return 1
@@ -180,7 +180,7 @@ run_orchestrated_tests() {
     
     # Build and start the containers
     echo "🏗️  Building and starting containers..."
-    if docker-compose -f "$compose_file" up $build_flag --abort-on-container-exit; then
+    if docker-compose -f "$compose_file" up "$build_flag" --abort-on-container-exit; then
         echo ""
         echo "✅ Tests completed successfully!"
         

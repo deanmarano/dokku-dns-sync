@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Remote server test script for dokku-dns plugin (Single SSH Session)
-# Usage: ./test-server.sh [server-hostname] [ssh-user] [test-app]
+# Usage: scripts/test-server.sh [server-hostname] [ssh-user] [test-app]
 #
 # For AWS testing, create a .env file with:
 #   AWS_ACCESS_KEY_ID=your_key
