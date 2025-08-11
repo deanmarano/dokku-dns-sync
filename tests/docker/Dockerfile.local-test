@@ -32,9 +32,9 @@ RUN apt-get update && apt-get install -y shellcheck && rm -rf /var/lib/apt/lists
 WORKDIR /plugin
 
 # Copy wait and test script
-COPY wait-and-test.sh /wait-and-test.sh
+COPY tests/wait-and-test.sh /tests/wait-and-test.sh
 COPY test-docker.sh /test-docker.sh
-RUN chmod +x /wait-and-test.sh /test-docker.sh
+RUN mkdir -p /tests && chmod +x /tests/wait-and-test.sh /test-docker.sh
 
 # Default command
-CMD ["/wait-and-test.sh"]
+CMD ["/tests/wait-and-test.sh"]
