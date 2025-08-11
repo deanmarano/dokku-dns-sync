@@ -24,7 +24,7 @@ services:
   test-runner:
     build:
       context: ../..
-      dockerfile: tests/docker/Dockerfile.local-test
+      dockerfile: tests/docker/Dockerfile
     depends_on:
       - dokku
     volumes:

@@ -94,8 +94,8 @@ docker-test:
 
 docker-test-clean:
 	@echo "Cleaning up Docker test environment..."
-	docker-compose -f tests/docker/docker-compose.test.yml down --volumes --remove-orphans
-	docker rmi $$(docker images -q dokku-dns_test) 2>/dev/null || true
+	docker-compose -f tests/docker/docker-compose.local.yml down --volumes --remove-orphans
+	docker rmi $$(docker images -q docker_test-runner) 2>/dev/null || true
 
 report: tmp/xunit-reader
 	tmp/xunit-reader -p 'tmp/test-results/bats/*.xml'
