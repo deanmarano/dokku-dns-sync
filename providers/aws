@@ -336,6 +336,184 @@ $DOMAIN"
   fi
 }
 
+dns_provider_aws_batch_sync_all() {
+  # This function is called by dns:sync-all to batch all changes across all apps
+  # It takes no parameters and discovers all DNS-managed apps and their domains
+  
+  dns_provider_aws_validate_credentials
+  dns_provider_aws_setup_env
+  
+  # Get server IP
+  local SERVER_IP
+  local GLOBAL_DOMAINS
+  GLOBAL_DOMAINS=$(dokku domains:report --domains-global-vhosts 2>/dev/null)
+  
+  if [[ -n "$GLOBAL_DOMAINS" ]]; then
+    local FIRST_GLOBAL_DOMAIN
+    FIRST_GLOBAL_DOMAIN=$(echo "$GLOBAL_DOMAINS" | head -n1)
+    SERVER_IP=$(dig +short "$FIRST_GLOBAL_DOMAIN" | tail -n1)
+  fi
+  
+  if [[ -z "$SERVER_IP" ]]; then
+    SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipecho.net/plain 2>/dev/null || curl -s icanhazip.com 2>/dev/null)
+  fi
+  
+  if [[ -z "$SERVER_IP" ]]; then
+    dokku_log_fail "Could not determine server IP for batch sync"
+  fi
+  
+  # Get all DNS-managed apps
+  local PLUGIN_DATA_ROOT="${DNS_ROOT:-${DOKKU_LIB_ROOT:-/var/lib/dokku}/services/dns}"
+  local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
+  
+  if [[ ! -f "$LINKS_FILE" ]]; then
+    dokku_log_warn "No apps are currently managed by DNS"
+    return 0
+  fi
+  
+  # Collect all domains by hosted zone
+  declare -A zone_changes
+  declare -A zone_domains
+  local total_domains=0
+  local total_changes=0
+  local skipped_changes=0
+  
+  dokku_log_info2 "Collecting domains for batch sync to server IP: $SERVER_IP"
+  
+  # Read managed apps and collect their domains
+  while IFS= read -r app; do
+    [[ -z "$app" ]] && continue
+    
+    local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$app/DOMAINS"
+    if [[ ! -f "$APP_DOMAINS_FILE" ]]; then
+      continue
+    fi
+    
+    dokku_log_info1 "Processing app: $app"
+    
+    while IFS= read -r domain; do
+      [[ -z "$domain" ]] && continue
+      total_domains=$((total_domains + 1))
+      
+      # Check if record needs updating
+      local current_value
+      current_value=$(dns_provider_aws_get_record_value "$domain" "A")
+      
+      if [[ "$current_value" == "$SERVER_IP" ]]; then
+        dokku_log_info1 "  $domain: already correct (no change needed)"
+        skipped_changes=$((skipped_changes + 1))
+        continue
+      fi
+      
+      # Get hosted zone for this domain
+      local zone_id
+      zone_id=$(dns_provider_aws_get_hosted_zone_id "$domain")
+      
+      if [[ -z "$zone_id" ]]; then
+        dokku_log_warn "  $domain: no hosted zone found, skipping"
+        continue
+      fi
+      
+      # Track domains per zone for reporting
+      if [[ -z "${zone_domains[$zone_id]:-}" ]]; then
+        zone_domains[$zone_id]=""
+      else
+        zone_domains[$zone_id]="${zone_domains[$zone_id]} "
+      fi
+      zone_domains[$zone_id]="${zone_domains[$zone_id]}$domain"
+      
+      # Add to batch for this zone
+      local change_json
+      change_json=$(cat <<EOF
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "$domain",
+        "Type": "A",
+        "TTL": 300,
+        "ResourceRecords": [
+          {
+            "Value": "$SERVER_IP"
+          }
+        ]
+      }
+    }
+EOF
+)
+      
+      if [[ -n "${zone_changes[$zone_id]:-}" ]]; then
+        zone_changes[$zone_id]="${zone_changes[$zone_id]},"
+      fi
+      zone_changes[$zone_id]="${zone_changes[$zone_id]}$change_json"
+      
+      if [[ -n "$current_value" ]]; then
+        dokku_log_info1 "  $domain: queued for update ($current_value -> $SERVER_IP)"
+      else
+        dokku_log_info1 "  $domain: queued for creation -> $SERVER_IP"
+      fi
+      total_changes=$((total_changes + 1))
+      
+    done < "$APP_DOMAINS_FILE"
+    
+  done < "$LINKS_FILE"
+  
+  if [[ $total_changes -eq 0 ]]; then
+    dokku_log_info1 "No changes needed - all $total_domains domains are already correctly configured"
+    return 0
+  fi
+  
+  # Execute batched changes per hosted zone
+  echo
+  dokku_log_info2 "Executing batched DNS updates"
+  local zones_updated=0
+  local zones_failed=0
+  
+  for zone_id in "${!zone_changes[@]}"; do
+    local change_batch
+    change_batch=$(cat <<EOF
+{
+  "Changes": [
+    ${zone_changes[$zone_id]}
+  ]
+}
+EOF
+)
+    
+    local domain_list="${zone_domains[$zone_id]}"
+    local domain_count=$(echo "$domain_list" | wc -w)
+    dokku_log_info1 "Updating hosted zone $zone_id ($domain_count domains: $domain_list)"
+    
+    local change_id
+    change_id=$(aws route53 change-resource-record-sets \
+      --hosted-zone-id "$zone_id" \
+      --change-batch "$change_batch" \
+      --query 'ChangeInfo.Id' \
+      --output text 2>/dev/null)
+      
+    if [[ -n "$change_id" ]]; then
+      dokku_log_info1 "✅ Batch update successful (Change ID: $change_id)"
+      zones_updated=$((zones_updated + 1))
+    else
+      dokku_log_warn "❌ Batch update failed for zone $zone_id"
+      zones_failed=$((zones_failed + 1))
+    fi
+  done
+  
+  # Summary
+  echo
+  dokku_log_info2 "Batch Sync Summary"
+  dokku_log_info1 "Total domains processed: $total_domains"
+  dokku_log_info1 "Records already correct: $skipped_changes"
+  dokku_log_info1 "Records updated: $total_changes"
+  dokku_log_info1 "Hosted zones updated: $zones_updated"
+  if [[ $zones_failed -gt 0 ]]; then
+    dokku_log_warn "Hosted zones failed: $zones_failed"
+  fi
+  dokku_log_info1 "API calls made: $zones_updated (instead of $total_changes individual calls)"
+  
+  return $zones_failed
+}
+
 dns_provider_aws_sync_app() {
   local SERVICE="$1"  # Not used in global mode, kept for compatibility
   local APP="$2"
