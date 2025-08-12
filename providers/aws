@@ -349,12 +349,18 @@ dns_provider_aws_sync_app() {
   dns_provider_aws_validate_credentials
   dns_provider_aws_setup_env
   
-  # Get all domains for the app from Dokku
-  local APP_DOMAINS
-  APP_DOMAINS=$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null)
+  # Get DNS-managed domains for the app from DNS plugin data  
+  local PLUGIN_DATA_ROOT="${DNS_ROOT:-${DOKKU_LIB_ROOT:-/var/lib/dokku}/services/dns}"
+  local APP_DOMAINS_FILE="$PLUGIN_DATA_ROOT/$APP/DOMAINS"
+  local APP_DOMAINS=""
+  
+  if [[ -f "$APP_DOMAINS_FILE" ]]; then
+    APP_DOMAINS=$(tr '\n' ' ' < "$APP_DOMAINS_FILE" 2>/dev/null)
+  fi
   
   if [[ -z "$APP_DOMAINS" ]]; then
-    dokku_log_warn "No domains configured for app: $APP"
+    dokku_log_warn "No DNS-managed domains found for app: $APP"
+    dokku_log_info1 "Add domains to DNS first: dokku $PLUGIN_COMMAND_PREFIX:add $APP [domain1] [domain2]"
     return 0
   fi
   
