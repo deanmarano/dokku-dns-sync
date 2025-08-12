@@ -32,6 +32,8 @@ service-sync-all-cmd() {
   #E dokku $PLUGIN_COMMAND_PREFIX:sync-all
   #E this will iterate through all apps that have DNS management enabled
   #E and sync their DNS records using the configured provider
+  #E AWS Route53: uses efficient batch API calls grouped by hosted zone
+  #E Other providers: syncs each app individually for compatibility
   declare desc="synchronize DNS records for all DNS-managed apps"
   local cmd="$PLUGIN_COMMAND_PREFIX:sync-all"
 
@@ -68,7 +70,30 @@ service-sync-all-cmd() {
     return 0
   fi
   
-  dokku_log_info2 "Synchronizing DNS records for ${#managed_apps[@]} managed app(s)"
+  # Check if we can use batch sync for AWS
+  if [[ "$PROVIDER" == "aws" ]]; then
+    dokku_log_info2 "Using batch sync for AWS Route53 (more efficient)"
+    
+    # Load the provider functions
+    local PROVIDER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/providers/$PROVIDER"
+    if [[ -f "$PROVIDER_SCRIPT" ]]; then
+      source "$PROVIDER_SCRIPT"
+      
+      # Use batch sync function
+      if dns_provider_aws_batch_sync_all; then
+        dokku_log_info1 "🎉 Batch DNS sync completed successfully!"
+        return 0
+      else
+        dokku_log_warn "Batch DNS sync encountered some failures"
+        return 1
+      fi
+    else
+      dokku_log_fail "AWS provider script not found"
+    fi
+  fi
+  
+  # Fallback to individual app sync for other providers or if batch fails
+  dokku_log_info2 "Synchronizing DNS records for ${#managed_apps[@]} managed app(s) individually"
   echo
   
   local success_count=0
