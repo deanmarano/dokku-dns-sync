@@ -182,7 +182,7 @@ test_dns_verify() {
     assert_output_contains_ignore_exit "Verify shows AWS CLI status" "AWS CLI is not installed. Please install it first:" dokku dns:verify
     
     # Test with no provider (remove provider configuration)
-    rm -f /var/lib/dokku/data/dns/PROVIDER 2>/dev/null || true
+    rm -f /var/lib/dokku/services/dns/PROVIDER 2>/dev/null || true
     assert_output_contains_ignore_exit "Verify with no provider shows error" "No provider configured" dokku dns:verify
     
     # Restore AWS provider

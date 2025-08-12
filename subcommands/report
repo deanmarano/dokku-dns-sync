@@ -372,8 +372,8 @@ dns_report() {
   
   echo
   dokku_log_info2 "Domain Analysis:"
-  dokku_log_info2 "$(printf "%-35s %-8s %-20s %-12s %s" "Domain" "DNS" "Status" "Provider" "Hosted Zone")"
-  dokku_log_info2 "$(printf "%-35s %-8s %-20s %-12s %s" "------" "---" "------" "--------" "-----------")"
+  printf "%-35s %-8s %-20s %-12s %s\n" "Domain" "DNS" "Status" "Provider" "Hosted Zone"
+  printf "%-35s %-8s %-20s %-12s %s\n" "------" "---" "------" "--------" "-----------"
   
   # Check global provider credentials
   local CREDENTIALS_DIR="$GLOBAL_CONFIG_ROOT/credentials"
