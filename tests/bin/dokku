@@ -19,6 +19,8 @@ elif [[ "$1" == "dns:add" ]]; then
     exec "$PLUGIN_ROOT/subcommands/add" "${@:2}"
 elif [[ "$1" == "dns:sync" ]]; then
     exec "$PLUGIN_ROOT/subcommands/sync" "${@:2}"
+elif [[ "$1" == "dns:sync-all" ]]; then
+    exec "$PLUGIN_ROOT/subcommands/sync-all" "${@:2}"
 elif [[ "$1" == "dns:remove" ]]; then
     exec "$PLUGIN_ROOT/subcommands/remove" "${@:2}"
 elif [[ "$1" == "dns:report" ]]; then

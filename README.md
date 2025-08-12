@@ -22,6 +22,7 @@ dns:configure <provider>  # configure or change the global dns provider
 dns:remove <app>          # remove app from dns management
 dns:report <app>          # display DNS status and domain information for app(s)
 dns:sync <app>            # synchronize DNS records for app
+dns:sync-all              # synchronize DNS records for all DNS-managed apps
 dns:verify                # verify DNS provider setup and connectivity
 dns:version <aws-version> # show DNS plugin version and dependency versions
 ```
@@ -214,6 +215,21 @@ dokku dns:sync nextcloud
 ```
 
 This will discover all domains from the app and update `DNS` records to point to the current server's `IP` address using the configured provider:
+
+### synchronize DNS records for all DNS-managed apps
+
+```shell
+# usage
+dokku dns:sync-all
+```
+
+Synchronize `DNS` records for all apps with `DNS` management enabled:
+
+```shell
+dokku dns:sync-all
+```
+
+This will iterate through all apps that have `DNS` management enabled and sync their `DNS` records using the configured provider. `AWS` Route53 uses efficient batch `API` calls grouped by hosted zone. Other providers sync each app individually for compatibility.
 
 ### Disabling `docker image pull` calls
 

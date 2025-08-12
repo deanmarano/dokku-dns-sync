@@ -3,7 +3,7 @@
 
 export PLUGIN_COMMAND_PREFIX="dns"
 export PLUGIN_SERVICE="DNS"
-export PLUGIN_DATA_ROOT=${DNS_ROOT:="${DOKKU_LIB_ROOT:-/var/lib/dokku}/data/dns"}
+export PLUGIN_DATA_ROOT=${DNS_ROOT:="${DOKKU_LIB_ROOT:-/var/lib/dokku}/services/dns"}
 export PLUGIN_CONFIG_ROOT=${DNS_CONFIG_ROOT:="${DOKKU_LIB_ROOT:-/var/lib/dokku}/config/dns"}
 
 # DNS-specific defaults

@@ -451,8 +451,8 @@ dns_display_domains_table() {
   
   echo
   dokku_log_info2 "Domain Status Table for app '$APP':"
-  dokku_log_info2 "$(printf "%-30s %-8s %-15s %-15s %s" "Domain" "Status" "Enabled" "Provider" "Hosted Zone")"
-  dokku_log_info2 "$(printf "%-30s %-8s %-15s %-15s %s" "------" "------" "-------" "--------" "-----------")"
+  printf "%-30s %-8s %-15s %-15s %s\n" "Domain" "Status" "Enabled" "Provider" "Hosted Zone"
+  printf "%-30s %-8s %-15s %-15s %s\n" "------" "------" "-------" "--------" "-----------"
   
   for DOMAIN in "${DOMAINS[@]}"; do
     [[ -z "$DOMAIN" ]] && continue

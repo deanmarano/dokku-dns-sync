@@ -46,6 +46,27 @@ run_lint() {
     fi
 }
 
+# Function to check README generation
+run_readme_check() {
+    log "INFO" "Checking README generation..."
+    
+    # Generate README and check if there are changes
+    make generate >/dev/null 2>&1
+    
+    if git diff --quiet README.md; then
+        log "SUCCESS" "README is up-to-date"
+        return 0
+    else
+        log "ERROR" "README needs to be regenerated"
+        echo ""
+        echo "The following changes were found in README.md after running 'make generate':"
+        git --no-pager diff README.md
+        echo ""
+        echo "Please run 'make generate' and commit the updated README.md"
+        return 1
+    fi
+}
+
 # Function to run Docker integration tests (fast)
 run_docker_integration_tests_fast() {
     log "INFO" "Running Docker integration tests..."
@@ -96,6 +117,15 @@ else
     log "INFO" "Documentation-only change detected, skipping linting"
 fi
 
+# Check README generation for any changes (including documentation changes)
+if ! run_readme_check; then
+    log "ERROR" "Pre-commit failed due to README generation issues"
+    echo ""
+    echo "To fix this: make generate && git add README.md"
+    echo "To skip this check temporarily: SKIP_TESTS=1 git commit"
+    exit 1
+fi
+
 # Check if Docker is available and user wants Docker tests
 if command -v docker >/dev/null 2>&1 && [[ "$CODE_CHANGES" == "true" ]]; then
     # Default to fast integration tests, allow full integration tests with RUN_FULL_TESTS=1
@@ -125,11 +155,13 @@ fi
 log "SUCCESS" "All pre-commit checks passed!"
 echo ""
 echo "💡 Tips:"
-echo "   • Fast integration tests run by default"  
+echo "   • Unit tests run by default (fast)"
+echo "   • README generation is checked automatically"
 echo "   • For full integration tests: RUN_FULL_TESTS=1 git commit"
 echo "   • To skip Docker tests: RUN_DOCKER_TESTS=0 git commit"
 echo "   • To skip all tests: SKIP_TESTS=1 git commit"
 echo "   • Manual testing:"
 echo "     - make lint                    # Linting only"
+echo "     - make generate                # Update README"
 echo "     - make docker-test            # Integration tests (fast)"
-echo "     - scripts/test-docker.sh --build    # Full Docker integration tests"
+echo "     - scripts/test-docker.sh --build    # Full integration tests"
