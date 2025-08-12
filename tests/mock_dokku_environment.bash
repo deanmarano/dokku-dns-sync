@@ -7,7 +7,7 @@ mkdir -p "$TEST_TMP_DIR"
 
 # Override environment variables to use temp directory
 export DOKKU_LIB_ROOT="$TEST_TMP_DIR/dokku"
-export PLUGIN_DATA_ROOT="$TEST_TMP_DIR/dokku/data/dns"
+export PLUGIN_DATA_ROOT="$TEST_TMP_DIR/dokku/services/dns"
 export PLUGIN_CONFIG_ROOT="$TEST_TMP_DIR/dokku/config/dns"
 
 # Create necessary directories
