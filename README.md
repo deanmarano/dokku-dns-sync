@@ -229,7 +229,7 @@ Synchronize `DNS` records for all apps with `DNS` management enabled:
 dokku dns:sync-all
 ```
 
-This will iterate through all apps that have `DNS` management enabled and sync their `DNS` records using the configured provider:
+This will iterate through all apps that have `DNS` management enabled and sync their `DNS` records using the configured provider. `AWS` Route53 uses efficient batch `API` calls grouped by hosted zone. Other providers sync each app individually for compatibility.
 
 ### Disabling `docker image pull` calls
 

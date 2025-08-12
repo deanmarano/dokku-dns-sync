@@ -115,3 +115,4 @@ dokku dns:help                                     # Show all available commands
 - Abstract DNS operations behind a common interface
 - Allow services to use different backends
 - Support backend-specific configuration and credentials
+- never skip precommit tests
