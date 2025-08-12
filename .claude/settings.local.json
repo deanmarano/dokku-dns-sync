@@ -37,7 +37,11 @@
       "Bash(git commit:*)",
       "Bash(scripts/test-docker.sh:*)",
       "Bash(tests/integration/docker-orchestrator.sh:*)",
-      "Bash(docker rmi:*)"
+      "Bash(docker rmi:*)",
+      "Bash(./subcommands/sync-all:*)",
+      "Bash(./commands dns:help)",
+      "Bash(./commands dns:sync-all)",
+      "Bash(./commands dns:help sync-all)"
     ],
     "deny": []
   }
