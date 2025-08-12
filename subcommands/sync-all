@@ -106,18 +106,20 @@ service-sync-all-cmd() {
   # Summary
   echo
   dokku_log_info2 "DNS Sync Summary"
-  dokku_log_info1 "Successfully synced: $success_count apps"
+  dokku_log_info1 "✅ Successfully processed: $success_count apps"
+  dokku_log_info1 "ℹ️  Note: Individual domains show whether records were updated or already correct"
   
   if [[ $fail_count -gt 0 ]]; then
-    dokku_log_warn "Failed to sync: $fail_count apps"
+    dokku_log_warn "❌ Failed to process: $fail_count apps"
     for failed_app in "${failed_apps[@]}"; do
-      dokku_log_info1 "  ❌ $failed_app"
+      dokku_log_info1 "    $failed_app"
     done
     echo
-    dokku_log_info1 "Check individual app configurations with: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
+    dokku_log_info1 "💡 Check individual app configurations with: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
     return 1
   else
-    dokku_log_info1 "🎉 All DNS-managed apps synced successfully!"
+    dokku_log_info1 "🎉 All DNS-managed apps processed successfully!"
+    dokku_log_info1 "💡 Only records that needed changes were updated to avoid unnecessary API calls"
   fi
 }
 
