@@ -31,9 +31,9 @@ service-sync-all-cmd() {
   #E synchronize DNS records for all apps with DNS management enabled
   #E dokku $PLUGIN_COMMAND_PREFIX:sync-all
   #E this will iterate through all apps that have DNS management enabled
-  #E and sync their DNS records using the configured provider
-  #E AWS Route53: uses efficient batch API calls grouped by hosted zone
-  #E Other providers: syncs each app individually for compatibility
+  #E and sync their DNS records using the configured provider.
+  #E AWS Route53 uses efficient batch API calls grouped by hosted zone.
+  #E Other providers sync each app individually for compatibility.
   declare desc="synchronize DNS records for all DNS-managed apps"
   local cmd="$PLUGIN_COMMAND_PREFIX:sync-all"
 

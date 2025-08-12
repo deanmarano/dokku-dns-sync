@@ -101,7 +101,7 @@ run_direct_tests() {
     
     # Fix permissions after installation
     log "INFO" "Fixing DNS plugin data directory permissions..."
-    docker exec "$DOKKU_CONTAINER" bash -c "chown -R dokku:dokku /var/lib/dokku/data/dns 2>/dev/null || true"
+    docker exec "$DOKKU_CONTAINER" bash -c "mkdir -p /var/lib/dokku/services/dns && chown -R dokku:dokku /var/lib/dokku/services/dns 2>/dev/null || true"
     
     # Verify plugin is properly installed and available
     log "INFO" "Verifying DNS plugin installation..."
@@ -123,7 +123,7 @@ run_direct_tests() {
         log "INFO" "Debugging plugin installation..."
         docker exec "$DOKKU_CONTAINER" bash -c "ls -la /var/lib/dokku/plugins/available/ | grep dns || echo 'DNS plugin not found in available plugins'"
         docker exec "$DOKKU_CONTAINER" bash -c "ls -la /var/lib/dokku/plugins/enabled/ | grep dns || echo 'DNS plugin not found in enabled plugins'"
-        docker exec "$DOKKU_CONTAINER" bash -c "ls -la /var/lib/dokku/data/ | grep dns || echo 'DNS data directory not found'"
+        docker exec "$DOKKU_CONTAINER" bash -c "ls -la /var/lib/dokku/services/ | grep dns || echo 'DNS data directory not found'"
         return 1
     fi
     
