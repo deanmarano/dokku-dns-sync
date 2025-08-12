@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+# Load dokku functions if available
+if [[ -f "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" ]]; then
+  source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+fi
+
+# Define missing functions if needed
+if ! declare -f dokku_log_info1 >/dev/null 2>&1; then
+  dokku_log_info1() { echo "-----> $*"; }
+fi
+
+if ! declare -f dokku_log_info2 >/dev/null 2>&1; then
+  dokku_log_info2() { echo "=====> $*"; }
+fi
+
+if ! declare -f dokku_log_warn >/dev/null 2>&1; then
+  dokku_log_warn() { echo " !     $*"; }
+fi
+
+if ! declare -f dokku_log_fail >/dev/null 2>&1; then
+  dokku_log_fail() { echo " !     $*" >&2; exit 1; }
+fi
+
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+service-sync-all-cmd() {
+  #E synchronize DNS records for all apps with DNS management enabled
+  #E dokku $PLUGIN_COMMAND_PREFIX:sync-all
+  #E this will iterate through all apps that have DNS management enabled
+  #E and sync their DNS records using the configured provider
+  declare desc="synchronize DNS records for all DNS-managed apps"
+  local cmd="$PLUGIN_COMMAND_PREFIX:sync-all"
+
+  local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
+  local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
+  
+  # Check if DNS provider is configured
+  if [[ ! -f "$PROVIDER_FILE" ]]; then
+    dokku_log_fail "No DNS provider configured. Run: dokku $PLUGIN_COMMAND_PREFIX:configure [provider]"
+  fi
+  
+  local PROVIDER
+  PROVIDER="$(cat "$PROVIDER_FILE")"
+  
+  if [[ -z "$PROVIDER" ]]; then
+    dokku_log_fail "DNS provider not set. Run: dokku $PLUGIN_COMMAND_PREFIX:configure [provider]"
+  fi
+  
+  # Check if any apps are managed by DNS
+  if [[ ! -f "$LINKS_FILE" ]]; then
+    dokku_log_warn "No apps are currently managed by DNS"
+    dokku_log_info1 "Add apps to DNS management: dokku $PLUGIN_COMMAND_PREFIX:add <app>"
+    return 0
+  fi
+  
+  # Read managed apps from LINKS file
+  local managed_apps=()
+  while IFS= read -r app; do
+    [[ -n "$app" ]] && managed_apps+=("$app")
+  done < "$LINKS_FILE"
+  
+  if [[ ${#managed_apps[@]} -eq 0 ]]; then
+    dokku_log_warn "No apps found in DNS management"
+    return 0
+  fi
+  
+  dokku_log_info2 "Synchronizing DNS records for ${#managed_apps[@]} managed app(s)"
+  echo
+  
+  local success_count=0
+  local fail_count=0
+  local failed_apps=()
+  
+  # Sync each managed app
+  for app in "${managed_apps[@]}"; do
+    dokku_log_info1 "Syncing DNS records for app: $app"
+    
+    # Check if app still exists
+    if command -v dokku >/dev/null 2>&1; then
+      if ! dokku apps:list 2>/dev/null | grep -q "^$app$"; then
+        dokku_log_warn "App '$app' no longer exists, skipping"
+        dokku_log_info1 "Remove from DNS: dokku $PLUGIN_COMMAND_PREFIX:remove $app"
+        fail_count=$((fail_count + 1))
+        failed_apps+=("$app (app not found)")
+        echo
+        continue
+      fi
+    fi
+    
+    # Attempt to sync the app
+    if dns_app "$app"; then
+      success_count=$((success_count + 1))
+      dokku_log_info1 "✅ Successfully synced DNS for: $app"
+    else
+      fail_count=$((fail_count + 1))
+      failed_apps+=("$app")
+      dokku_log_warn "❌ Failed to sync DNS for: $app"
+    fi
+    echo
+  done
+  
+  # Summary
+  echo
+  dokku_log_info2 "DNS Sync Summary"
+  dokku_log_info1 "Successfully synced: $success_count apps"
+  
+  if [[ $fail_count -gt 0 ]]; then
+    dokku_log_warn "Failed to sync: $fail_count apps"
+    for failed_app in "${failed_apps[@]}"; do
+      dokku_log_info1 "  ❌ $failed_app"
+    done
+    echo
+    dokku_log_info1 "Check individual app configurations with: dokku $PLUGIN_COMMAND_PREFIX:report <app>"
+    return 1
+  else
+    dokku_log_info1 "🎉 All DNS-managed apps synced successfully!"
+  fi
+}
+
+service-sync-all-cmd "$@"
