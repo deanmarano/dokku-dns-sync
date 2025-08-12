@@ -65,6 +65,24 @@ dns_provider_aws_get_hosted_zone_id() {
   return 1
 }
 
+dns_provider_aws_get_record_value() {
+  local DOMAIN="$1"
+  local RECORD_TYPE="$2"
+  
+  local HOSTED_ZONE_ID
+  HOSTED_ZONE_ID=$(dns_provider_aws_get_hosted_zone_id "$DOMAIN")
+  
+  if [[ -z "$HOSTED_ZONE_ID" ]]; then
+    return 1
+  fi
+  
+  # Get the current record value
+  aws route53 list-resource-record-sets \
+    --hosted-zone-id "$HOSTED_ZONE_ID" \
+    --query "ResourceRecordSets[?Name=='${DOMAIN}.' && Type=='${RECORD_TYPE}'].ResourceRecords[0].Value" \
+    --output text 2>/dev/null | grep -v "None" || echo ""
+}
+
 dns_provider_aws_create_record() {
   local DOMAIN="$1"
   local RECORD_TYPE="$2"
@@ -76,6 +94,22 @@ dns_provider_aws_create_record() {
   
   if [[ -z "$HOSTED_ZONE_ID" ]]; then
     dokku_log_fail "No hosted zone found for domain: $DOMAIN. Ensure the domain or its parent domain has a hosted zone in Route53."
+  fi
+  
+  # Check if record already has the correct value
+  local CURRENT_VALUE
+  CURRENT_VALUE=$(dns_provider_aws_get_record_value "$DOMAIN" "$RECORD_TYPE")
+  
+  if [[ "$CURRENT_VALUE" == "$RECORD_VALUE" ]]; then
+    dokku_log_info1 "DNS record already correct: $DOMAIN -> $RECORD_VALUE (no change needed)"
+    return 0
+  fi
+  
+  # Log what we're changing from/to
+  if [[ -n "$CURRENT_VALUE" ]]; then
+    dokku_log_info1 "Updating DNS record: $DOMAIN ($CURRENT_VALUE -> $RECORD_VALUE)"
+  else
+    dokku_log_info1 "Creating DNS record: $DOMAIN -> $RECORD_VALUE"
   fi
   
   # Create change batch JSON
@@ -110,7 +144,11 @@ EOF
     --output text 2>/dev/null)
     
   if [[ -n "$CHANGE_ID" ]]; then
-    dokku_log_info1 "DNS record created/updated: $DOMAIN -> $RECORD_VALUE"
+    if [[ -n "$CURRENT_VALUE" ]]; then
+      dokku_log_info1 "✅ DNS record updated: $DOMAIN -> $RECORD_VALUE"
+    else
+      dokku_log_info1 "✅ DNS record created: $DOMAIN -> $RECORD_VALUE"
+    fi
     dokku_log_verbose "Change ID: $CHANGE_ID"
     return 0
   else
