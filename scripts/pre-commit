@@ -129,11 +129,44 @@ restore_docker_state() {
 # Function to run Docker integration tests (fast)
 run_docker_integration_tests_fast() {
     log "INFO" "Running Docker integration tests..."
+    
+    # Check if test containers are running, start them if not
+    local containers_running=false
+    if docker-compose -f tests/docker/docker-compose.yml ps | grep -q "Up"; then
+        containers_running=true
+        log "INFO" "Test containers already running"
+    else
+        log "INFO" "Starting test containers..."
+        if docker-compose -f tests/docker/docker-compose.yml up -d >/dev/null 2>&1; then
+            log "INFO" "Test containers started"
+            # Wait a moment for containers to be ready
+            sleep 2
+        else
+            log "ERROR" "Failed to start test containers"
+            return 1
+        fi
+    fi
+    
+    # Run the tests
     if make docker-test 2>/dev/null; then
         log "SUCCESS" "Docker integration tests passed"
+        
+        # Clean up containers if we started them
+        if [[ "$containers_running" == "false" ]]; then
+            log "INFO" "Cleaning up test containers..."
+            docker-compose -f tests/docker/docker-compose.yml down >/dev/null 2>&1 || true
+        fi
+        
         return 0
     else
         log "ERROR" "Docker integration tests failed"
+        
+        # Clean up containers if we started them
+        if [[ "$containers_running" == "false" ]]; then
+            log "INFO" "Cleaning up test containers..."
+            docker-compose -f tests/docker/docker-compose.yml down >/dev/null 2>&1 || true
+        fi
+        
         return 1
     fi
 }
@@ -197,7 +230,7 @@ if command -v docker >/dev/null 2>&1 && [[ "$CODE_CHANGES" == "true" ]]; then
     fi
     
     # Set up trap to restore Docker state on exit
-    trap "restore_docker_state '$DOCKER_WAS_RUNNING'" EXIT
+    trap 'restore_docker_state "$DOCKER_WAS_RUNNING"' EXIT
     
     # Default to fast integration tests, allow full integration tests with RUN_FULL_TESTS=1
     if [[ "${RUN_FULL_TESTS:-}" == "1" ]]; then
