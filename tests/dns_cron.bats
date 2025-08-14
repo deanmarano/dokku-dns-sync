@@ -322,6 +322,51 @@ EOF
     assert_output_contains "*/30 * * * * (custom)"
 }
 
+@test "(dns:cron) displays next run time for daily schedules" {
+    # Setup provider and cron job with daily schedule 
+    setup_mock_provider
+    create_mock_crontab_with_existing_job
+    
+    # Create metadata with daily schedule (2 AM default)
+    mkdir -p "$PLUGIN_DATA_ROOT/cron"
+    echo "enabled" > "$PLUGIN_DATA_ROOT/cron/status"
+    echo "0 2 * * *" > "$PLUGIN_DATA_ROOT/cron/schedule"
+    echo "dokku dns:sync-all" > "$PLUGIN_DATA_ROOT/cron/command"
+    echo "$PLUGIN_DATA_ROOT/cron/sync.log" > "$PLUGIN_DATA_ROOT/cron/log_file"
+    echo "2025-08-12 10:00:00" > "$PLUGIN_DATA_ROOT/cron/enabled_at"
+    
+    run dns_cmd cron
+    assert_success
+    assert_output_contains "Status: ✅ ENABLED"
+    assert_output_contains "Schedule: 0 2 * * * (Daily at 2:00 AM - default)"
+    # Should show next run time (will be either today 2 AM or tomorrow 2 AM)
+    assert_output_contains "Next Run: 202"  # Should contain year in timestamp
+}
+
+@test "(dns:cron) handles next run calculation gracefully for complex schedules" {
+    # Setup provider and cron job with complex schedule that can't be calculated
+    setup_mock_provider
+    create_mock_crontab_with_existing_job
+    
+    # Create metadata with complex schedule
+    mkdir -p "$PLUGIN_DATA_ROOT/cron"
+    echo "enabled" > "$PLUGIN_DATA_ROOT/cron/status"
+    echo "0 2,14 * * 1-5" > "$PLUGIN_DATA_ROOT/cron/schedule"  # Weekdays only, 2am and 2pm
+    echo "dokku dns:sync-all" > "$PLUGIN_DATA_ROOT/cron/command"
+    echo "$PLUGIN_DATA_ROOT/cron/sync.log" > "$PLUGIN_DATA_ROOT/cron/log_file"
+    
+    # Update mock crontab to match complex schedule
+    export MOCK_CRONTAB_FILE="$TEST_TMP_DIR/mock_crontab"
+    echo "0 2,14 * * 1-5 dokku dns:sync-all >> /var/lib/dokku/services/dns/cron/sync.log 2>&1 # Dokku DNS auto-sync" > "$MOCK_CRONTAB_FILE"
+    
+    run dns_cmd cron
+    assert_success
+    assert_output_contains "Status: ✅ ENABLED"
+    assert_output_contains "Schedule: 0 2,14 * * 1-5 (custom)"
+    # Should not show next run time for complex schedules (or shows it if calculation worked)
+    # Test passes either way - we're testing it doesn't crash
+}
+
 # Command aliases for easier testing
 dns_cron() {
     "$PLUGIN_ROOT/subcommands/cron" "$@"
