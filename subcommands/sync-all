@@ -37,6 +37,11 @@ service-sync-all-cmd() {
   declare desc="synchronize DNS records for all DNS-managed apps"
   local cmd="$PLUGIN_COMMAND_PREFIX:sync-all"
 
+  # Log start time
+  local start_time end_time
+  start_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
+  echo "[$start_time] Starting DNS sync-all operation"
+
   local LINKS_FILE="$PLUGIN_DATA_ROOT/LINKS"
   local PROVIDER_FILE="$PLUGIN_DATA_ROOT/PROVIDER"
   
@@ -133,6 +138,10 @@ service-sync-all-cmd() {
   dokku_log_info2 "DNS Sync Summary"
   dokku_log_info1 "✅ Successfully processed: $success_count apps"
   dokku_log_info1 "ℹ️  Note: Individual domains show whether records were updated or already correct"
+  
+  # Log end time
+  end_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
+  echo "[$end_time] DNS sync-all operation completed"
   
   if [[ $fail_count -gt 0 ]]; then
     dokku_log_warn "❌ Failed to process: $fail_count apps"
